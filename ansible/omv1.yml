@@ -1,0 +1,94 @@
+# Bootstrap configuration for my first backup node
+# Note: The user has already been created interactively at first boot of Armbian
+
+---
+- name: Initial configuration of backup server (omv1)
+  hosts: omv1
+  gather_facts: true
+  vars_files:
+    - host_vars/backup-node-1/packages.yml
+    - host_vars/backup-node-1/secrets.yml
+  vars:
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'  # disable host key checking for inital connection
+  become: true
+
+  tasks:
+    - name: Add user to sudo group
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: sudo  # On Debian/Ubuntu; for CentOS/RHEL, use 'wheel'
+        append: yes
+
+    - name: Upload SSH public key
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        state: present
+        # key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}" # lookup key file in home dir of current user
+        key: "{{ lookup('file', hostvars['localhost'].ssh_pub_key_path) }}"
+
+    - name: Disable root SSH access.
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^PermitRootLogin"
+        line: "PermitRootLogin no"
+        state: present
+      notify: 
+        - restart sshd
+
+    - name: Disable SSH password authentication.
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^PasswordAuthentication"
+        line: "PasswordAuthentication no"
+        state: present
+      notify: 
+        - restart sshd
+
+    - name: Enable SSH keyboard-interactive authentication.
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^ChallengeResponseAuthentication"
+        line: "ChallengeResponseAuthentication yes"
+        state: present
+      notify: 
+        - restart sshd
+
+    - name: Set hostname 
+      ansible.builtin.hostname:
+        name: omv1
+        use: debian
+      notify: 
+        - reboot server
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Upgrade packages
+      apt:
+        upgrade: yes
+        autoremove: yes
+      register: debian
+      #- debug:
+      #    msg: " {{ debian.stdout_lines }} "
+
+    - name: List installed and updated packages
+      shell: grep -E "^$(date +%Y-%m-%d).+ (install|upgrade) " /var/log/dpkg.log |cut -d " " -f 3-5
+      register: result
+      when: debian.changed
+
+    - name: Show Output
+      debug: msg="{{ result.stdout_lines }}"
+      when: debian.changed
+
+
+  handlers:
+    - name: restart sshd
+      ansible.builtin.service: 
+        name: sshd 
+        state: restarted
+
+    - name: reboot server
+      ansible.builtin.reboot:
+        reboot_command: systemctl reboot -i
+  
