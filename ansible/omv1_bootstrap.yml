@@ -46,7 +46,7 @@
         use: debian
       notify: 
         - reboot server
-
+        
 
   handlers:
     - name: reboot server
