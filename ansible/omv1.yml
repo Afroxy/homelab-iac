@@ -1,23 +1,20 @@
-# Bootstrap configuration for my first backup node
-# Note: The user has already been created interactively at first boot of Armbian
-
 ---
-- name: Initial configuration of backup server (omv1)
+- name: Configure Server
   hosts: omv1
   gather_facts: true
   vars_files:
     - host_vars/backup-node-1/packages.yml
     - host_vars/backup-node-1/secrets.yml
-  vars:
-    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'  # disable host key checking for inital connection
+  #vars:
+  #  ansible_ssh_common_args: '-o StrictHostKeyChecking=no'  # disable host key checking for inital connection
   become: true
 
   tasks:
-    - name: Add user to sudo group
-      ansible.builtin.user:
-        name: "{{ ansible_user }}"
-        groups: sudo  # On Debian/Ubuntu; for CentOS/RHEL, use 'wheel'
-        append: yes
+    - name: Upgrade packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: yes
+        autoremove: yes
 
     - name: Upload SSH public key
       ansible.posix.authorized_key:
@@ -26,6 +23,8 @@
         # key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}" # lookup key file in home dir of current user
         key: "{{ lookup('file', hostvars['localhost'].ssh_pub_key_path) }}"
         exclusive: yes  # remove all other non-specified keys from the authorized_keys file
+      notify: 
+        - restart sshd
 
     - name: Configure root SSH access
       lineinfile:
@@ -45,42 +44,21 @@
       notify: 
         - restart sshd
 
-    - name: Set hostname 
-      ansible.builtin.hostname:
-        name: omv1
-        use: debian
+
+    - name: Enable passwordless sudo
+      copy:
+        dest: "/etc/sudoers.d/{{ ansible_user }}"
+        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL"
+        owner: root
+        group: root
+        mode: 0440
+        validate: /usr/sbin/visudo -csf %s
       notify: 
-        - reboot server
-
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-
-    - name: Upgrade packages
-      apt:
-        upgrade: yes
-        autoremove: yes
-      register: debian
-      #- debug:
-      #    msg: " {{ debian.stdout_lines }} "
-
-    - name: List installed and updated packages
-      shell: grep -E "^$(date +%Y-%m-%d).+ (install|upgrade) " /var/log/dpkg.log |cut -d " " -f 3-5
-      register: result
-      when: debian.changed
-
-    - name: Show Output
-      debug: msg="{{ result.stdout_lines }}"
-      when: debian.changed
-
+        - restart sshd
 
   handlers:
     - name: restart sshd
       ansible.builtin.service: 
         name: sshd 
         state: restarted
-
-    - name: reboot server
-      ansible.builtin.reboot:
-        reboot_command: systemctl reboot -i
   

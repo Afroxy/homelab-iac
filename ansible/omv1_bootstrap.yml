@@ -1,0 +1,55 @@
+---
+- name: Bootstrap server as root
+  hosts: omv1
+  gather_facts: false
+  vars_files:
+    - host_vars/omv1/secrets.yml
+  vars:
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'  # disable host key checking for inital connection
+
+
+  tasks:
+    - name: Set username and password for bootstrap
+      set_fact:
+        ansible_user: "{{ bs_user }}" 
+        ansible_password: "{{ bs_password }}"
+
+    - name: Upgrade packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: yes
+        autoremove: yes
+
+    - name: Install sudo
+      ansible.builtin.package:
+        name: sudo
+        state: present
+
+    - name: Create a new sudo user
+      ansible.builtin.user:
+        name: "{{ bs_new_user }}"
+        password: "{{ bs_new_user_password_hash }}"
+        groups: sudo
+        append: yes
+        shell: /bin/bash
+        create_home: yes
+
+    - name: Ensure the user is in the sudoers group
+      ansible.builtin.user:
+        name: "{{ bs_new_user }}"
+        groups: sudo
+        append: yes
+
+    - name: Set hostname 
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+        use: debian
+      notify: 
+        - reboot server
+
+
+  handlers:
+    - name: reboot server
+      ansible.builtin.reboot:
+        reboot_command: systemctl reboot -i
+  
