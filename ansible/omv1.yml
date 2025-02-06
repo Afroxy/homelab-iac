@@ -5,8 +5,6 @@
   vars_files:
     - host_vars/backup-node-1/packages.yml
     - host_vars/backup-node-1/secrets.yml
-  #vars:
-  #  ansible_ssh_common_args: '-o StrictHostKeyChecking=no'  # disable host key checking for inital connection
   become: true
 
   tasks:
@@ -44,7 +42,6 @@
       notify: 
         - restart sshd
 
-
     - name: Enable passwordless sudo
       copy:
         dest: "/etc/sudoers.d/{{ ansible_user }}"
@@ -55,6 +52,21 @@
         validate: /usr/sbin/visudo -csf %s
       notify: 
         - restart sshd
+
+    - name: Install additional packages
+      ansible.builtin.apt:
+        pkg:
+        - ufw # Firewall
+
+    - name: UFW - Allow SSH connections
+      community.general.ufw:
+        rule: allow
+        name: OpenSSH
+
+    - name: UFW - Enable and deny other connections by default
+      community.general.ufw:
+        state: enabled
+        default: deny
 
   handlers:
     - name: restart sshd

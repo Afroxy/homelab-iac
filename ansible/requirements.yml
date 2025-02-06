@@ -1,0 +1,6 @@
+# To install requirements, run:
+# ansible-galaxy install -r requirements.yml
+
+---
+collections:
+- community.general
