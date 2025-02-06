@@ -1,3 +1,8 @@
+External Code Integration
+
+This ansible role was merged from [Stefano Prina’s](https://github.com/stethewwolf) repo [ansible-role-omv](https://github.com/stethewwolf/ansible-role-omv).
+License: The code is subject to the original repository’s license (MIT).
+
 # ansible-role-omv
 Ansible role for openmediavault installation
 
