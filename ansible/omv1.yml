@@ -3,16 +3,16 @@
   hosts: omv1
   gather_facts: true
   vars_files:
-    - host_vars/backup-node-1/packages.yml
-    - host_vars/backup-node-1/secrets.yml
+    - host_vars/omv1/packages.yml
+    - host_vars/omv1/secrets.yml
   become: true
 
-  tasks:
-    - name: Upgrade packages
-      ansible.builtin.apt:
-        update_cache: yes
-        upgrade: yes
-        autoremove: yes
+  pre_tasks:
+    # - name: Upgrade packages
+    #   ansible.builtin.apt:
+    #     update_cache: yes
+    #     upgrade: yes
+    #     autoremove: yes
 
     - name: Upload SSH public key
       ansible.posix.authorized_key:
@@ -53,24 +53,41 @@
       notify: 
         - restart sshd
 
-    - name: Install additional packages
-      ansible.builtin.apt:
-        pkg:
-        - ufw # Firewall
+    # - name: Install additional packages
+    #   ansible.builtin.apt:
+    #     pkg:
+    #     - ufw # Firewall
 
-    - name: UFW - Allow SSH connections
-      community.general.ufw:
-        rule: allow
-        name: OpenSSH
+    # - name: UFW - Allow SSH connections
+    #   community.general.ufw:
+    #     rule: allow
+    #     name: OpenSSH
 
-    - name: UFW - Enable and deny other connections by default
-      community.general.ufw:
-        state: enabled
-        default: deny
+    # - name: UFW - Enable and deny other connections by default
+    #   community.general.ufw:
+    #     state: enabled
+    #     default: deny
+
+
+  roles:
+    - role: install_omv
+
+
+  post_tasks:
+    - name: Add the user to the _ssh group  # omv installation disables ssh for other users/groups
+      ansible.builtin.user:
+        name: "{{ bs_new_user }}"
+        groups: _ssh
+        append: yes
+
+  #   - name: reboot server
+  #     ansible.builtin.reboot:
+  #       reboot_command: systemctl reboot -i
+
 
   handlers:
-    - name: restart sshd
-      ansible.builtin.service: 
-        name: sshd 
-        state: restarted
+  - name: restart sshd
+    ansible.builtin.service: 
+      name: sshd 
+      state: restarted
   

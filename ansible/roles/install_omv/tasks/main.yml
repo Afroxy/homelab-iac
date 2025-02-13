@@ -4,12 +4,18 @@
       name: gnupg
       state: latest
 
-- name: Download OMV archive key
-  ansible.builtin.apt_key:
-    url: https://packages.openmediavault.org/public/archive.key
-    state: present
+- name: Download OMV GPG key
+  ansible.builtin.get_url:
+    url: "https://packages.openmediavault.org/public/archive.key"
+    dest: "/tmp/archive.key"
+    mode: '0644'
 
-- name: Create OMV apt source list
+- name: Convert and store GPG key
+  ansible.builtin.command:
+    cmd: "gpg --dearmor --yes --output /usr/share/keyrings/openmediavault-archive-keyring.gpg /tmp/archive.key"
+
+
+- name: Add OMV apt package repositories
   template: 
     src: "openmediavault.list"
     dest: /etc/apt/sources.list.d/openmediavault.list
@@ -17,41 +23,102 @@
     group: root
     mode: u=rw,g=rw,o=r
 
-- name: Install openmediavault keyring package
-  apt:
-    name: openmediavault-keyring
-    install_recommends: no
-    state: latest
-    update_cache: yes
+# - name: Install OMV keyring package
+#   apt:
+#     name: openmediavault-keyring
+#     install_recommends: no
+#     state: latest
+#     update_cache: yes
 
-- name: Install openmediavault package
+- name: Install OMV package
   apt:
     name: openmediavault
     install_recommends: no
     allow_downgrade: yes
     state: latest
     update_cache: yes
+    autoremove: yes
+  environment:
+    LANG: C.UTF-8
+    DEBIAN_FRONTEND: noninteractive
+    APT_LISTCHANGES_FRONTEND: none
 
-# this command is needed to initialize the system
-- name: "Configure OMV DB"
-  command: "/usr/sbin/omv-confdbadm populate"
-  when: omv_first_install
 
 
-- name: Allow connections from all networks
-  iptables:
-    chain: INPUT
-    policy: ACCEPT
-  notify: run_iptables4_save
-  when: omv_networks is not defined
+- name: Check if the custom fact for DB populated exists (gather custom facts)
+  ansible.builtin.setup:
+    filter: ansible_local
+  register: custom_facts  	# stores custom_facts.ansible_facts.ansible_local
 
-- name: Allow connections to selected nets
-  iptables:
-    chain: INPUT
-    source: "{{ item }}"
-    jump: ACCEPT
-  notify: run_iptables_save
-  loop: "{{ omv_networks }}"
-  when: omv_networks is defined
+
+# - name: Debug 1
+#   ansible.builtin.debug:
+#     msg: "{{ custom_facts }}"
+
+
+- name: Make sure the custom fact directory exists
+  ansible.builtin.file:
+    path: /etc/ansible/facts.d
+    state: directory
+    mode: '0755'
+
+# - name: Debug 2
+#   ansible.builtin.debug:
+#     msg: "{{ custom_facts.ansible_facts.ansible_local.custom.db_populated is not defined }}"
+
+
+- name: Create the custom fact for DB populated if missing 
+  ansible.builtin.copy:
+    dest: /etc/ansible/facts.d/custom.fact
+    content: '{"db_populated": "false"}'
+    mode: '0644'
+  when: custom_facts.ansible_facts.ansible_local.custom.db_populated is not defined
+
+
+- name: Gather custom facts after creating
+  ansible.builtin.setup:
+    filter: ansible_local
+  when: custom_facts.ansible_facts.ansible_local.custom.db_populated is not defined
+
+
+# - name: Debug 3
+#   ansible.builtin.debug:
+#     msg: 
+#       - "{{ ansible_local }}"
+
+
+
+- name: Populate the OMV DB
+  ansible.builtin.command: "/usr/sbin/omv-confdbadm populate"
+  when: ansible_local.custom.db_populated == "false" or omv_repopulate_db == "true"
+
+- name: Set custom fact for DB populated true
+  ansible.builtin.copy:
+    dest: /etc/ansible/facts.d/custom.fact
+    content: '{"db_populated": "true"}'
+    mode: '0644'
+  when: ansible_local.custom.db_populated == "false" or omv_repopulate_db == "true"
+
+
+
+
+# - name: Re-deploy network configuation via the services used by OMV
+#   command: "omv-salt deploy run systemd-networkd"
+
+# - name: Allow connections from all networks
+#   iptables:
+#     chain: INPUT
+#     policy: ACCEPT
+#   notify: run_iptables4_save
+#   when: omv_networks is not defined
+
+# - name: Allow connections to selected nets
+#   iptables:
+#     chain: INPUT
+#     source: "{{ item }}"
+#     jump: ACCEPT
+#   notify: run_iptables_save
+#   loop: "{{ omv_networks }}"
+#   when: omv_networks is defined
 
 
