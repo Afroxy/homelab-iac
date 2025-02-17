@@ -14,11 +14,11 @@
         ansible_user: "{{ bs_user }}" 
         ansible_password: "{{ bs_password }}"
 
-    # - name: Upgrade packages
-    #   ansible.builtin.apt:
-    #     update_cache: yes
-    #     upgrade: yes
-    #     # autoremove: yes
+    - name: Upgrade packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: yes
+        # autoremove: yes
 
     - name: Install sudo
       ansible.builtin.package:

@@ -1,4 +1,3 @@
 # version of OpenMediaVault
 omv_version: sandworm
-omv_first_install: true
 omv_repopulate_db: false

@@ -8,11 +8,11 @@
   become: true
 
   pre_tasks:
-    # - name: Upgrade packages
-    #   ansible.builtin.apt:
-    #     update_cache: yes
-    #     upgrade: yes
-    #     autoremove: yes
+    - name: Upgrade packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: yes
+ 
 
     - name: Upload SSH public key
       ansible.posix.authorized_key:
@@ -53,22 +53,6 @@
       notify: 
         - restart sshd
 
-    # - name: Install additional packages
-    #   ansible.builtin.apt:
-    #     pkg:
-    #     - ufw # Firewall
-
-    # - name: UFW - Allow SSH connections
-    #   community.general.ufw:
-    #     rule: allow
-    #     name: OpenSSH
-
-    # - name: UFW - Enable and deny other connections by default
-    #   community.general.ufw:
-    #     state: enabled
-    #     default: deny
-
-
   roles:
     - role: install_omv
 
@@ -80,9 +64,9 @@
         groups: _ssh
         append: yes
 
-  #   - name: reboot server
-  #     ansible.builtin.reboot:
-  #       reboot_command: systemctl reboot -i
+    - name: reboot server
+      ansible.builtin.reboot:
+        reboot_command: systemctl reboot -i
 
 
   handlers:

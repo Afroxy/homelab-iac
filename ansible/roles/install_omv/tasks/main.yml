@@ -23,12 +23,6 @@
     group: root
     mode: u=rw,g=rw,o=r
 
-# - name: Install OMV keyring package
-#   apt:
-#     name: openmediavault-keyring
-#     install_recommends: no
-#     state: latest
-#     update_cache: yes
 
 - name: Install OMV package
   apt:
@@ -44,28 +38,16 @@
     APT_LISTCHANGES_FRONTEND: none
 
 
-
 - name: Check if the custom fact for DB populated exists (gather custom facts)
   ansible.builtin.setup:
     filter: ansible_local
   register: custom_facts  	# stores custom_facts.ansible_facts.ansible_local
-
-
-# - name: Debug 1
-#   ansible.builtin.debug:
-#     msg: "{{ custom_facts }}"
-
 
 - name: Make sure the custom fact directory exists
   ansible.builtin.file:
     path: /etc/ansible/facts.d
     state: directory
     mode: '0755'
-
-# - name: Debug 2
-#   ansible.builtin.debug:
-#     msg: "{{ custom_facts.ansible_facts.ansible_local.custom.db_populated is not defined }}"
-
 
 - name: Create the custom fact for DB populated if missing 
   ansible.builtin.copy:
@@ -81,13 +63,6 @@
   when: custom_facts.ansible_facts.ansible_local.custom.db_populated is not defined
 
 
-# - name: Debug 3
-#   ansible.builtin.debug:
-#     msg: 
-#       - "{{ ansible_local }}"
-
-
-
 - name: Populate the OMV DB
   ansible.builtin.command: "/usr/sbin/omv-confdbadm populate"
   when: ansible_local.custom.db_populated == "false" or omv_repopulate_db == "true"
@@ -100,25 +75,5 @@
   when: ansible_local.custom.db_populated == "false" or omv_repopulate_db == "true"
 
 
-
-
-# - name: Re-deploy network configuation via the services used by OMV
-#   command: "omv-salt deploy run systemd-networkd"
-
-# - name: Allow connections from all networks
-#   iptables:
-#     chain: INPUT
-#     policy: ACCEPT
-#   notify: run_iptables4_save
-#   when: omv_networks is not defined
-
-# - name: Allow connections to selected nets
-#   iptables:
-#     chain: INPUT
-#     source: "{{ item }}"
-#     jump: ACCEPT
-#   notify: run_iptables_save
-#   loop: "{{ omv_networks }}"
-#   when: omv_networks is defined
-
+# Reboot is recommendet after this role
 
