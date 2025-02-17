@@ -1,43 +1,44 @@
-External Code Integration
+# Ansible Role Install OMV
+A ansible role for openmediavault installation on a remote server running Debian.
 
-This ansible role was merged from [Stefano Prina’s](https://github.com/stethewwolf) repo [ansible-role-omv](https://github.com/stethewwolf/ansible-role-omv).
-License: The code is subject to the original repository’s license (MIT).
 
-# ansible-role-omv
-Ansible role for openmediavault installation
+## Prerequisites 
+This role is working for [debian bullseye](https://www.debian.org/releases/bullseye/).
 
-**NB:** this role is working only for [debian bullseye](https://www.debian.org/releases/bullseye/), currently oldstable
+This role require debian is installed using the without any gui or web-server, only ssh with sudo privileges required. OMV will create the admin user in the installation process, so you do not need to create a user beforehand. 
 
-This role require debian is installed using the [netinst](https://get.debian.org/images/archive/11.3.0/amd64/iso-cd/) whitout any
-gui or web-server, only ssh and one user with sudo.
-
-This role require [ansible-common-role](https://github.com/stethewwolf/ansible-common-role).
+This role depends on no other roles.
 
 ## Configuration
 Manage the ovm version:
 ```
-omv_version: shaitan
+omv_version: sandworm
 ```
 
-This flag must be set has false after the first run, (it is necessary skip some task)
+Repopulate database after first run, set:
 ```
-omv_first_install: true
+omv_repopulate_db: true
 ```
 
-Manage allowed networks:
-```
-omv_networks:
- - 192.168.100.0/24
-```
-for all those networks we applay the role "ACCEPT" to all connections in input, if not define this role will applay the ACCEPT policy.
 
 ## Next Steps
-After you run the first installation:
+After you run the installation role:
 
-* set `omv_first_install: false`
-* open the browser to `http://ip/` use the default credentials `admin:openmediavault` to login
+Option 1:
+* Open the browser to `http://ip/` and use the default credentials `admin:openmediavault` to login
 * configure you nas as you desire
+
+Option 2:
+* Use my ansible role ????? to configure OMV with ansible
+
+
+## License:
+This project is licensed under the MIT License - see [License.md](LICENSE) for details.
+
+## Acknowledgments
+This ansible role was inspired by [Stefano Prina’s](https://github.com/stethewwolf) repo [ansible-role-omv](https://github.com/stethewwolf/ansible-role-omv) and heavily adapted to work with OMV 7 (Sandworm).
 
 ## References
 * [OpenMediaVault](https://openmediavault.org)
-* [OpenMediaVault - Debina installation](https://docs.openmediavault.org/en/stable/installation/on_debian.html)
+* [OpenMediaVault - Debian installation](https://docs.openmediavault.org/en/stable/installation/on_debian.html)
+
