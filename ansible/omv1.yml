@@ -1,18 +1,14 @@
 ---
-- name: Configure Server
+- name: Configure Openmediavault Server
   hosts: omv1
   gather_facts: true
   vars_files:
-    - host_vars/omv1/packages.yml
     - host_vars/omv1/secrets.yml
   become: true
 
-  pre_tasks:
-    - name: Upgrade packages
-      ansible.builtin.apt:
-        update_cache: yes
-        upgrade: yes
- 
+  tasks:
+    - name: Upgrade packages using the omv wrapper script
+      ansible.builtin.command: "/usr/sbin/omv-upgrade"
 
     - name: Upload SSH public key
       ansible.posix.authorized_key:
@@ -53,25 +49,29 @@
       notify: 
         - restart sshd
 
-  roles:
-    - role: install_omv
-
-
-  post_tasks:
-    - name: Add the user to the _ssh group  # omv installation disables ssh for other users/groups
+    - name: Add the new admin user to the openmediavault-admin group
       ansible.builtin.user:
-        name: "{{ bs_new_user }}"
-        groups: _ssh
+        name: "{{ ansible_user }}"
+        groups: openmediavault-admin 
         append: yes
+      notify: 
+        - restart sshd  
 
-    - name: reboot server
-      ansible.builtin.reboot:
-        reboot_command: systemctl reboot -i
-
+    - name: Remove the default admin user from the openmediavault-admin group
+      ansible.builtin.command: "gpasswd -d admin openmediavault-admin"
+      register: command_result
+      changed_when: "not 'is not a member of' in command_result.stderr"
+      failed_when: false
+      notify: 
+        - reboot server 
 
   handlers:
   - name: restart sshd
     ansible.builtin.service: 
       name: sshd 
       state: restarted
+
+  - name: reboot server
+    ansible.builtin.reboot:
+      reboot_command: systemctl reboot -i
   

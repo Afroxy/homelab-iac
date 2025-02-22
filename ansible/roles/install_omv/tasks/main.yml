@@ -75,5 +75,3 @@
   when: ansible_local.custom.db_populated == "false" or omv_repopulate_db == "true"
 
 
-# Reboot is recommendet after this role
-

@@ -8,7 +8,7 @@
     ansible_ssh_common_args: '-o StrictHostKeyChecking=no'  # disable host key checking for inital connection
 
 
-  tasks:
+  pre_tasks:
     - name: Set username and password for bootstrap
       set_fact:
         ansible_user: "{{ bs_user }}" 
@@ -25,7 +25,18 @@
         name: sudo
         state: present
 
-    - name: Create a new sudo user
+    - name: Set hostname 
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+        use: debian
+
+
+        
+  roles:
+    - role: install_omv
+
+  post_tasks:
+    - name: Create a new admin user
       ansible.builtin.user:
         name: "{{ bs_new_user }}"
         password: "{{ bs_new_user_password_hash }}"
@@ -34,22 +45,13 @@
         shell: /bin/bash
         create_home: yes
 
-    - name: Ensure the user is in the sudoers group
+    - name: Add the user to the _ssh group  # omv installation disables ssh for other users/groups
       ansible.builtin.user:
         name: "{{ bs_new_user }}"
-        groups: sudo
+        groups: _ssh
         append: yes
 
-    - name: Set hostname 
-      ansible.builtin.hostname:
-        name: "{{ inventory_hostname }}"
-        use: debian
-      notify: 
-        - reboot server
-        
 
-  handlers:
-    - name: reboot server
+    - name: Reboot server
       ansible.builtin.reboot:
         reboot_command: systemctl reboot -i
-  
