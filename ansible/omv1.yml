@@ -7,63 +7,66 @@
   become: true
 
   tasks:
-    - name: Upgrade packages using the omv wrapper script
-      ansible.builtin.command: "/usr/sbin/omv-upgrade"
+    # - name: Upgrade packages using the omv wrapper script
+    #   ansible.builtin.command: "/usr/sbin/omv-upgrade"
 
-    - name: Upload SSH public key
-      ansible.posix.authorized_key:
-        user: "{{ ansible_user }}"
-        state: present
-        # key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}" # lookup key file in home dir of current user
-        key: "{{ lookup('file', hostvars['localhost'].ssh_pub_key_path) }}"
-        exclusive: yes  # remove all other non-specified keys from the authorized_keys file
-      notify: 
-        - restart sshd
+    # - name: Upload SSH public key
+    #   ansible.posix.authorized_key:
+    #     user: "{{ ansible_user }}"
+    #     state: present
+    #     # key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}" # lookup key file in home dir of current user
+    #     key: "{{ lookup('file', hostvars['localhost'].ssh_pub_key_path) }}"
+    #     exclusive: yes  # remove all other non-specified keys from the authorized_keys file
+    #   notify: 
+    #     - restart sshd
 
-    - name: Configure root SSH access
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: "^PermitRootLogin"
-        line: "PermitRootLogin {{ sshd_permit_root_login }}"
-        state: present
-      notify: 
-        - restart sshd
+    # - name: Enable passwordless sudo
+    #   copy:
+    #     dest: "/etc/sudoers.d/{{ ansible_user }}"
+    #     content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL"
+    #     owner: root
+    #     group: root
+    #     mode: 0440
+    #     validate: /usr/sbin/visudo -csf %s
 
-    - name: Configure SSH password authentication
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: "^PasswordAuthentication"
-        line: "PasswordAuthentication {{ sshd_password_authentication }}"
-        state: present
-      notify: 
-        - restart sshd
+    # - name: Add the new admin user to the openmediavault-admin group
+    #   ansible.builtin.user:
+    #     name: "{{ ansible_user }}"
+    #     groups: openmediavault-admin 
+    #     append: yes
 
-    - name: Enable passwordless sudo
-      copy:
-        dest: "/etc/sudoers.d/{{ ansible_user }}"
-        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL"
-        owner: root
-        group: root
-        mode: 0440
-        validate: /usr/sbin/visudo -csf %s
-      notify: 
-        - restart sshd
+    # - name: Remove the default admin user from the openmediavault-admin group
+    #   ansible.builtin.command: "gpasswd -d admin openmediavault-admin"
+    #   register: command_result
+    #   changed_when: "not 'is not a member of' in command_result.stderr"
+    #   failed_when: false
+    #   notify: 
+    #     - reboot server 
 
-    - name: Add the new admin user to the openmediavault-admin group
-      ansible.builtin.user:
-        name: "{{ ansible_user }}"
-        groups: openmediavault-admin 
-        append: yes
-      notify: 
-        - restart sshd  
 
-    - name: Remove the default admin user from the openmediavault-admin group
-      ansible.builtin.command: "gpasswd -d admin openmediavault-admin"
-      register: command_result
-      changed_when: "not 'is not a member of' in command_result.stderr"
-      failed_when: false
-      notify: 
-        - reboot server 
+### Configuration using OMV internal tools (https://docs.openmediavault.org/en/latest/development/tools/index.html)
+# Caution: OMV overwrites changes made to the native linux system when re-deploying services with omv-salt.
+# Only changes made via the internal tools (i.e. editing the /etc/openmediavault/config.xml file) are persistent
+# ToDo: Find a solution to make the shell calls below idemponent
+
+    - name: Configure SSH
+      ansible.builtin.shell: >
+        omv-confdbadm update conf.service.ssh 
+        '{"enable": {{ ssh_enable }},
+        "port": {{ ssh_port }},
+        "passwordauthentication": {{ ssh_passwordauthentication }}, 
+        "pubkeyauthentication": {{ ssh_pubkeyauthentication }},
+        "permitrootlogin": {{ ssh_permitrootlogin }}, 
+        "tcpforwarding": {{ ssh_tcpforwarding }},
+        "compression": {{ ssh_compression }},
+        "extraoptions": "{{ ssh_extraoptions }}" }'
+
+
+
+    - name: Redeploy services
+      ansible.builtin.shell: >
+        omv-salt deploy run ssh
+
 
   handlers:
   - name: restart sshd
