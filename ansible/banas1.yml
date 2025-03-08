@@ -1,0 +1,193 @@
+---
+- name: Configure Backup NAS 1
+  hosts: banas1
+  gather_facts: true
+  vars_files:
+    - host_vars/banas1/secrets.yml
+  become: true
+
+
+  tasks:
+      - name: Enable passwordless sudo for {{ ansible_user }}
+        copy:
+          dest: "/etc/sudoers.d/{{ ansible_user }}"
+          content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL"
+          owner: root
+          group: root
+          mode: 0440
+          validate: /usr/sbin/visudo -csf %s
+
+      - name: Upload SSH public key
+        ansible.posix.authorized_key:
+          user: "{{ ansible_user }}"
+          state: present
+          # key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}" # lookup key file in home dir of current user
+          key: "{{ lookup('file', hostvars['localhost'].ssh_pub_key_path) }}"
+          exclusive: yes  # remove all other non-specified keys from the authorized_keys file
+        notify: 
+          - Restart sshd
+
+      - name: Configure root SSH access
+        lineinfile:
+          path: /etc/ssh/sshd_config
+          regexp: "^PermitRootLogin"
+          line: "PermitRootLogin {{ sshd_permit_root_login }}"
+          state: present
+        notify: 
+          - Restart sshd
+
+      - name: Configure SSH password authentication
+        lineinfile:
+          path: /etc/ssh/sshd_config
+          regexp: "^PasswordAuthentication"
+          line: "PasswordAuthentication {{ sshd_password_authentication }}"
+          state: present
+        notify: 
+          - Restart sshd
+
+
+      - name: Install additional packages
+        ansible.builtin.apt:
+          name: 
+            #- hdparm   # install if APM is available on your drive
+            - sdparm
+            - smartmontools
+            #- git
+            #- make
+            #- build-essential
+          state: present
+
+
+      - name: Upgrade packages
+        ansible.builtin.apt:
+          update_cache: yes
+          upgrade: yes
+
+      ## ToDo: Fix compilation of openSeaChest. Problem with 32-bit system
+
+      # - name: Clone openSeaChest repository
+      #   ansible.builtin.git:
+      #     repo: "https://github.com/Seagate/openSeaChest.git"
+      #     dest: "/root/openSeaChest"
+      #     version: "HEAD"
+      #     recursive: yes
+
+      # - name: Compile openSeaChest (Seagate Utility for managing power saving on EPC supporting hdds)
+      #   # https://forum.pine64.org/showthread.php?tid=7137
+      #   ansible.builtin.shell: |
+      #     cd /root/openSeaChest/Make/gcc && CXXFLAGS="-D_FILE_OFFSET_BITS=64" make release
+
+      # - name: Move compiled openSeaChest
+      #   ansible.builtin.shell: |
+      #     mkdir -pv /opt/openSeaChest/bin && mv openseachest_exes/* /opt/openSeaChest/bin
+      #     cd / && rm -rf /root/openSeaChest
+      #     cat <<<'export PATH="$PATH:/opt/openSeaChest/bin"' >> /root/.bashrc
+
+
+      ## Alternative EPC management tool: https://github.com/tyan-boot/wdepc
+      - name: Check if wdepc command is available
+        ansible.builtin.command:
+          cmd: which wdepc
+        register: result
+        ignore_errors: yes
+
+      - name: Install WDEPC if not available
+        block:
+
+        - name: Install WDEPC | Clone WDEPC repository
+          ansible.builtin.git:
+            repo: "https://github.com/tyan-boot/wdepc"
+            dest: "$HOME/wdepc"
+
+        - name: Install WDEPC | Install Rust compiler and Cargo
+          ansible.builtin.shell: |
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+        - name: Install WDEPC | Compile using Cargo
+          ansible.builtin.shell: |
+            $HOME/.cargo/bin/cargo build --release
+          args:
+            chdir: $HOME/wdepc
+
+        - name: Install WDEPC | Copy wdepc to /usr/local/bin
+          ansible.builtin.copy:
+            src: $HOME/wdepc/target/release/wdepc
+            dest: /usr/local/bin/wdepc
+            mode: '0755'
+            remote_src: yes
+
+        - name: Install WDEPC | Remove source files
+          ansible.builtin.file:
+            path: $HOME/wdepc
+            state: absent
+
+        - name: Install WDEPC | Uninstall Rust
+          ansible.builtin.command: $HOME/.cargo/bin/rustup self uninstall -y
+
+        when: result.stdout == ""
+
+
+
+      - name: Set HDD spindown timer 
+        # 5 second intervals (0-255), 0 = disable
+        ansible.builtin.command: hdparm -S 0 /dev/sda
+      
+      - name: Create a rsync group
+        ansible.builtin.group:
+          name: rsync
+          state: present
+
+      - name: Generate a user for the rsync connection
+        ansible.builtin.user:
+          name: banas1
+          groups: banas1, rsync
+          shell: /bin/bash
+          create_home: yes
+          generate_ssh_key: yes
+          ssh_key_type: rsa
+          ssh_key_bits: 3072
+          ssh_key_file: .ssh/id_rsa
+          force: no # yes: overwrites existing key
+
+
+      - name: Set group and permissions for the mounted drive
+        ansible.builtin.file:
+          path: "{{ mount_point }}"
+          owner: root
+          group: rsync
+          mode: "0770"
+
+      - name: Upload rsync job script
+        ansible.builtin.template:
+          src: templates/rsync_pull_job.sh
+          dest: /usr/local/bin/rsync_pull_job.sh
+          owner: banas1
+          group: rsync
+          mode: '0770'
+
+
+      - name: Create a directory for rsync logs in /var/log
+        ansible.builtin.file:
+          path: /var/log/rsync
+          state: directory
+          owner: root
+          group: rsync
+          mode: '0774'
+
+      - name: Fetch SSH public key
+        ansible.builtin.slurp:
+          src: /home/banas1/.ssh/id_rsa.pub
+        register: ssh_key_pub
+
+      - name: Display SSH public key -> transfer to primary NAS
+        ansible.builtin.debug:
+          msg: "{{ ssh_key_pub['content'] | b64decode }}"
+
+
+
+
+  handlers:
+  - name: Restart sshd
+    ansible.builtin.service: 
+      name: sshd 
+      state: restarted

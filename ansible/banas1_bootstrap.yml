@@ -1,0 +1,115 @@
+---
+- name: Bootstrap Backup NAS 1 as root
+  hosts: banas1
+  gather_facts: false
+  vars_files:
+    - host_vars/banas1/secrets.yml
+  vars:
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'  # disable host key checking for inital connection
+  become: true
+
+
+
+  tasks:
+    - name: Set username and password for bootstrap
+      ansible.builtin.set_fact:
+        ansible_user: "{{ bs_user }}" 
+        ansible_password: "{{ bs_password }}"
+
+    - name: Upgrade packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: yes
+        # autoremove: yes
+
+    - name: Install btrfs-progs
+      ansible.builtin.apt:
+        name: btrfs-progs
+        state: present
+
+    - name: Install sudo
+      ansible.builtin.apt:
+        name: sudo
+        state: present
+
+    - name: Create a new admin user
+      ansible.builtin.user:
+        name: "{{ bs_new_user }}"
+        password: "{{ bs_new_user_password_hash }}"
+        groups: sudo
+        append: yes
+        shell: /bin/bash
+        create_home: yes
+
+    - name: Check if the disk is connected
+      ansible.builtin.stat:
+        path: "{{ disk_device }}"
+      register: disk_check
+
+    - name: Fail if disk is not found
+      ansible.builtin.fail:
+        msg: "Error: The disk {{ disk_device }} is not connected!"
+      when: not disk_check.stat.exists
+
+    - name: Prompt the user if the disk should be wiped
+      ansible.builtin.pause:
+        prompt: "Do you want to wipe the disk {{ disk_device }}, create a new partition and filesystem? Type 'yes' to confirm"
+      register: user_response
+
+    - name: Wipe the disk if confirmed
+      block:
+        - name: Ensure the disk is unmounted
+          ansible.posix.mount:
+            path: "{{ mount_point }}"
+            state: unmounted
+          ignore_errors: yes
+
+        - name: Wipe existing partitions
+          ansible.builtin.command: "wipefs --all {{ disk_device }}"
+
+        - name: Create a new partition with GPT partition table
+          community.general.parted:
+            device: "{{ disk_device }}"
+            number: 1
+            label: gpt
+            part_end: "100%"
+            state: present
+
+        - name: Format the partition with "{{ filesystem_type }}"
+          community.general.filesystem:
+            fstype: "{{ filesystem_type }}"
+            dev: "{{ disk_device }}{{ partition_number }}"
+            force: true # overwrite existing filesystem
+
+      when: user_response.user_input | lower == "yes"
+
+
+    - name: Create the mount point directory
+      ansible.builtin.file:
+        path: "{{ mount_point }}"
+        state: directory
+        owner: root
+        group: rsync
+        mode: '0774'
+
+    - name: Mount the filesystem
+      ansible.posix.mount:
+        path: "{{ mount_point }}"
+        src: "{{ disk_device }}{{ partition_number }}"
+        fstype: "{{ filesystem_type }}"
+        state: mounted
+
+    - name: Add entry to /etc/fstab for persistent mount
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: "{{ disk_device }}{{ partition_number }} {{ mount_point }} {{ filesystem_type }} defaults 0 0"
+        state: present
+
+    - name: Set hostname 
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+        use: debian
+
+    - name: Reboot server
+      ansible.builtin.reboot:
+        reboot_command: systemctl reboot -i
