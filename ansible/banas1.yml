@@ -150,12 +150,25 @@
           force: no # yes: overwrites existing key
 
 
-      - name: Set group and permissions for the mounted drive
+      - name: Set ownership and permissions for the mounted drive
         ansible.builtin.file:
           path: "{{ mount_point }}"
           owner: root
           group: rsync
           mode: "0770"
+
+      - name: Create btrfs subvolumes
+        community.general.btrfs_subvolume:
+          name: "{{ item }}"
+        loop: "{{ btrfs_subvolumes }}"
+
+      - name: Set ownership and permissions for btrfs subvolumes
+        ansible.builtin.file:
+          path: "{{ mount_point }}/{{ item }}"
+          owner: root
+          group: rsync
+          mode: "0770"
+        loop: "{{ btrfs_subvolumes }}"
 
       - name: Upload rsync job script
         ansible.builtin.template:

@@ -2,7 +2,7 @@
 
 ## Run rsync job, retry on errors until a maximum number of retries is reached
 
-MAX_RETRIES=50
+MAX_RETRIES=10
 RSYNC_PULL_COMMAND=(rsync -av {{ rsync_user }}@{{ rsync_host }}:{{ rsync_source_path }} {{ rsync_destination_path }} -A -X --inplace --delete --log-file="/var/log/rsync/rsync_pull_job_$(date +\%Y-\%m-\%d_\%H-\%M-\%S).log" )
 i=0
 
