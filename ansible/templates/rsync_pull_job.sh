@@ -14,22 +14,24 @@ SOURCE_PATH=$3
 DESTINATION_PATH=$4
 
 LOG_PATH="/var/log/rsync"
-LOG_FILE="rsync_pull_job_$(date +\%Y-\%m-\%d_\%H-\%M-\%S).log"
+LOG_FILE="rsync_pull_job_$(date +'%Y-%m-%d_%H-%M-%S').log"
 
 ## Run rsync job, retry on errors until a maximum number of retries is reached
 MAX_RETRIES=10
-#RSYNC_PULL_COMMAND=(rsync -av {{ rsync_user }}@{{ rsync_host }}:{{ rsync_source_path }} {{ rsync_destination_path }} -A -X --inplace --delete --log-file="/var/log/rsync/rsync_pull_job_$(date +\%Y-\%m-\%d_\%H-\%M-\%S).log" )
 RSYNC_PULL_COMMAND=(rsync -av $RSYNC_USER@$RSYNC_HOST:$SOURCE_PATH $DESTINATION_PATH -A -X --inplace --delete --log-file="$LOG_PATH/$LOG_FILE" )
 i=0
+
+echo "[$(date)] Starting Rsync pull job from $SOURCE_PATH ..."
 
 while [ $i -lt $MAX_RETRIES ]; do
   i=$((i + 1))
   
-  # Run rsync command
-  "${RSYNC_PULL_COMMAND[@]}"
+  # Run rsync command (create full log, but output only errors, warnings, etc)
+  "${RSYNC_PULL_COMMAND[@]}"  | grep -iE '(^sent|^received|^total|error|warning|permission|rsync)'
+  rsync_exit_code=${PIPESTATUS[0]}  # Get exit code of rsync, not grep
   
   # If rsync succeeds, break the loop
-  if [ $? -eq 0 ]; then
+  if [[ $rsync_exit_code -eq 0 ]]; then
     break
   fi
 
@@ -43,6 +45,7 @@ if [ $i -eq $MAX_RETRIES ]; then
   exit 1
 fi
 
+echo "[$(date)] Rsync pull job from $SOURCE_PATH finished after $i retries."
 exit 0  # Success
 
 

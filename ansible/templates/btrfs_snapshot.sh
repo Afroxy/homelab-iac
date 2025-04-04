@@ -42,7 +42,7 @@ SNAPSHOT_PATH="$SNAPSHOT_PARENT/$SNAPSHOT_NAME"
     if [ $? -eq 0 ]; then
         echo "[$(date)] Snapshot created at: $SNAPSHOT_PATH"
     else
-        echo "[$(date)] Failed to create snapshot." | tee -a "$LOG_PATH/$LOG_FILE"
+        echo "[$(date)] ERROR: Failed to create snapshot." | tee -a "$LOG_PATH/$LOG_FILE"
         exit 1
     fi
 } | tee -a "$LOG_PATH/$LOG_FILE"
