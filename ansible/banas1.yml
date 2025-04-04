@@ -4,10 +4,15 @@
   gather_facts: true
   vars_files:
     - host_vars/banas1/secrets.yml
+    - group_vars/all/secrets.yml
   become: true
 
 
   tasks:
+      - name: Set timezone
+        community.general.timezone:
+          name: "{{ timezone }}"
+
       - name: Enable passwordless sudo for {{ ansible_user }}
         copy:
           dest: "/etc/sudoers.d/{{ ansible_user }}"
@@ -55,6 +60,7 @@
             #- git
             #- make
             #- build-essential
+            - postfix   # Message Transfer Agend (MTA) for logging cronjob output
           state: present
 
 
@@ -85,6 +91,7 @@
 
 
       ## Alternative EPC management tool: https://github.com/tyan-boot/wdepc
+      ## Problem: Disk still spins down after some time
       - name: Check if wdepc command is available
         ansible.builtin.command:
           cmd: which wdepc
@@ -127,10 +134,22 @@
         when: result.stdout == ""
 
 
+      - name: Set WDEPC timers (spindown after 90 minutes)
+        ansible.builtin.shell: |
+          wdepc -d /dev/sda set-timer idle_a 600 --save --enable true
+          wdepc -d /dev/sda set-timer idle_b 6000 --save --enable true
+          wdepc -d /dev/sda set-timer idle_c 18000 --save --enable true
+          wdepc -d /dev/sda set-timer standby_z 54000 --save --enable true
 
-      - name: Set HDD spindown timer 
-        # 5 second intervals (0-255), 0 = disable
-        ansible.builtin.command: hdparm -S 0 /dev/sda
+      ## Workaround to prevent disk spin down
+      - name: Add periodic disk read operation to the cron tab
+        ansible.builtin.cron:
+          name: "Periodic disk read operation"
+          minute: "*/10"
+          user: root
+          job: "dd if=/dev/sda of=/dev/null bs=512 count=1 iflag=direct"
+      
+
       
       - name: Create a rsync group
         ansible.builtin.group:
@@ -148,6 +167,15 @@
           ssh_key_bits: 3072
           ssh_key_file: .ssh/id_rsa
           force: no # yes: overwrites existing key
+
+      - name: Enable passwordless sudo for banas1
+        copy:
+          dest: "/etc/sudoers.d/banas1"
+          content: "banas1 ALL=(ALL) NOPASSWD:ALL"
+          owner: root
+          group: root
+          mode: 0440
+          validate: /usr/sbin/visudo -csf %s
 
 
       - name: Set ownership and permissions for the mounted drive
@@ -170,6 +198,33 @@
           mode: "0770"
         loop: "{{ btrfs_subvolumes }}"
 
+      - name: Create btrfs snapshot subvolume
+        community.general.btrfs_subvolume:
+          name: "{{ btrfs_snapshot_path }}"
+
+      - name: Set ownership and permissions for snapshot subvolume
+        ansible.builtin.file:
+          path: "{{ mount_point }}/{{ btrfs_snapshot_path }}"
+          owner: root
+          group: rsync
+          mode: "0770"
+
+      - name: Upload btrfs snapshot script
+        ansible.builtin.template:
+          src: templates/btrfs_snapshot.sh
+          dest: /usr/local/bin/btrfs_snapshot.sh
+          owner: banas1
+          group: rsync
+          mode: '0770'
+
+      - name: Create a directory for btrfs snapshot logs in /var/log
+        ansible.builtin.file:
+          path: /var/log/btrfs
+          state: directory
+          owner: root
+          group: rsync
+          mode: '0774'
+
       - name: Upload rsync job script
         ansible.builtin.template:
           src: templates/rsync_pull_job.sh
@@ -177,7 +232,6 @@
           owner: banas1
           group: rsync
           mode: '0770'
-
 
       - name: Create a directory for rsync logs in /var/log
         ansible.builtin.file:
@@ -187,6 +241,32 @@
           group: rsync
           mode: '0774'
 
+      - name: Create a directory for cronjob logs in /var/log
+        ansible.builtin.file:
+          path: /var/log/cron
+          state: directory
+          owner: root
+          group: root
+          mode: '0777'
+
+      - name: Create a cron job for btrfs snapshots
+        ansible.builtin.cron:
+          name: "Btrfs Snapshot for {{ item.0 }}"
+          hour: "{{ item.1 }}"
+          minute: 59
+          user: "{{ rsync_user }}"
+          job: "sudo /usr/local/bin/btrfs_snapshot.sh {{ mount_point }}/{{ item.0 }} {{ mount_point }}/{{ btrfs_snapshot_path }} >>/var/log/cron/btrfs_snapshot_{{ item.0 | basename }} 2>&1"
+        loop: "{{ btrfs_subvolumes | zip(btrfs_snapshot_hours) | list }}"
+
+      - name: Create a cron job for rsync tasks
+        ansible.builtin.cron:
+          name: "Rsync pull from {{ item.0 }}"
+          hour: "{{ item.2 }}"
+          minute: 0
+          user: "{{ rsync_user }}"
+          job: "/usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"
+        loop: "{{ rsync_source_paths | zip(rsync_destination_paths, rsync_hours) | list }}"
+
       - name: Fetch SSH public key
         ansible.builtin.slurp:
           src: /home/banas1/.ssh/id_rsa.pub
@@ -195,6 +275,16 @@
       - name: Display SSH public key -> transfer to primary NAS
         ansible.builtin.debug:
           msg: "{{ ssh_key_pub['content'] | b64decode }}"
+
+
+## TODO:
+# - how to preserve file ownership with rsync (maybe must run task as root)
+# - email results of snapshots and rsync
+# - only run rsync if previous snapshot was sucessful
+# - check directory permissions and restrict if possible
+# - check permissions of rsynced files
+# - check restore of btrfs snapshot
+
 
 
 
