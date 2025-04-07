@@ -18,7 +18,7 @@ LOG_FILE="rsync_pull_job_$(date +'%Y-%m-%d_%H-%M-%S').log"
 
 ## Run rsync job, retry on errors until a maximum number of retries is reached
 MAX_RETRIES=10
-RSYNC_PULL_COMMAND=(rsync -av $RSYNC_USER@$RSYNC_HOST:$SOURCE_PATH $DESTINATION_PATH -A -X --inplace --delete --log-file="$LOG_PATH/$LOG_FILE" )
+RSYNC_PULL_COMMAND=(rsync -e "ssh -i /home/banas1/.ssh/id_rsa" -av $RSYNC_USER@$RSYNC_HOST:$SOURCE_PATH $DESTINATION_PATH -A -X --inplace --delete --log-file="$LOG_PATH/$LOG_FILE" )
 i=0
 
 echo "[$(date)] Starting Rsync pull job from $SOURCE_PATH ..."
