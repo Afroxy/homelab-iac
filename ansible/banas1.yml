@@ -22,7 +22,7 @@
           mode: 0440
           validate: /usr/sbin/visudo -csf %s
 
-      - name: Upload SSH public key
+      - name: Upload SSH public key from localhost
         ansible.posix.authorized_key:
           user: "{{ ansible_user }}"
           state: present
@@ -61,6 +61,8 @@
             #- make
             #- build-essential
             - postfix   # Message Transfer Agend (MTA) for logging cronjob output
+            - samba
+            - acl
           state: present
 
 
@@ -149,7 +151,6 @@
           user: root
           job: "dd if=/dev/sda of=/dev/null bs=512 count=1 iflag=direct"
       
-
       
       - name: Create a rsync group
         ansible.builtin.group:
@@ -183,7 +184,7 @@
           path: "{{ mount_point }}"
           owner: root
           group: rsync
-          mode: "0770"
+          mode: "0775"
 
       - name: Create btrfs subvolumes
         community.general.btrfs_subvolume:
@@ -195,7 +196,7 @@
           path: "{{ mount_point }}/{{ item }}"
           owner: root
           group: rsync
-          mode: "0770"
+          mode: "0775"
         loop: "{{ btrfs_subvolumes }}"
 
       - name: Create btrfs snapshot subvolume
@@ -207,7 +208,7 @@
           path: "{{ mount_point }}/{{ btrfs_snapshot_path }}"
           owner: root
           group: rsync
-          mode: "0770"
+          mode: "0755"
 
       - name: Upload btrfs snapshot script
         ansible.builtin.template:
@@ -247,7 +248,7 @@
           state: directory
           owner: root
           group: root
-          mode: '0777'
+          mode: '0771'
 
       - name: Create a cron job for btrfs snapshots
         ansible.builtin.cron:
@@ -264,8 +265,54 @@
           hour: "{{ item.2 }}"
           minute: 0
           user: "{{ rsync_user }}"
-          job: "/usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"
+          job: "sudo /usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"
         loop: "{{ rsync_source_paths | zip(rsync_destination_paths, rsync_hours) | list }}"
+
+
+      - name: Activate SMB shares and grant ACL permissions
+        tags: smb_enable
+        block:
+  
+        - name: Configure smb.conf for samba share
+          ansible.builtin.template:
+            src: templates/smb.conf.j2
+            dest: /etc/samba/smb.conf
+
+        - name: Add SMB user and password
+          ansible.builtin.shell: "smbpasswd -s -a {{ smb_user }}"
+          args:
+            stdin: "{{ smb_password}}\n{{ smb_password }}"
+
+        - name: Configure ACLs for admin access to SMB shares
+          ansible.posix.acl:
+            path: /mnt/data
+            entity: "{{ smb_user }}"
+            etype: user
+            permissions: rx
+            recursive: true
+            state: present
+
+        notify: 
+          - Enable samba
+          - Restart samba
+
+      - name: Deactivate SMB shares and remove ACL permissions
+        tags: smb_disable
+        block:
+
+        - name: Remove SMB user and password
+          ansible.builtin.shell: "smbpasswd -s -x {{ smb_user }}"
+          ignore_errors: true
+        
+        - name: Remove ACLs for admin access to SMB shares
+          ansible.posix.acl:
+            path: /mnt/data
+            entity: "{{ smb_user }}"
+            etype: user
+            recursive: true
+            state: absent  
+
+        notify: Disable samba 
 
       - name: Fetch SSH public key
         ansible.builtin.slurp:
@@ -294,3 +341,19 @@
     ansible.builtin.service: 
       name: sshd 
       state: restarted
+
+  - name: Restart samba
+    ansible.builtin.service:
+      name: smbd
+      state: restarted
+
+  - name: Enable samba
+    ansible.builtin.service:
+      name: smbd
+      state: started
+
+  - name: Disable samba
+    ansible.builtin.service:
+      name: smbd
+      enabled: false # do not start service on boot
+      state: stopped 
