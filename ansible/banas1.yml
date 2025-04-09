@@ -63,6 +63,7 @@
             - postfix   # Message Transfer Agend (MTA) for logging cronjob output
             - samba
             - acl
+            - snapper
           state: present
 
 
@@ -147,7 +148,7 @@
       - name: Add periodic disk read operation to the cron tab
         ansible.builtin.cron:
           name: "Periodic disk read operation"
-          minute: "*/10"
+          minute: "*/9"
           user: root
           job: "dd if=/dev/sda of=/dev/null bs=512 count=1 iflag=direct"
       
@@ -267,6 +268,22 @@
           user: "{{ rsync_user }}"
           job: "sudo /usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"
         loop: "{{ rsync_source_paths | zip(rsync_destination_paths, rsync_hours) | list }}"
+
+      - name: Configure Snapper for each btrfs subvolume
+        tags: snapper_config
+        include_tasks: snapper.yml
+        vars:
+          config.name: "{{ item | basename }}"
+          config.path: "{{ [mount_point, item] | path_join }}"
+        loop: "{{ btrfs_subvolumes }}"
+
+      - name: Get existing snapper configurations
+        ansible.builtin.shell: snapper list-configs
+        register: snapper_configs
+
+      - name: List existing snapper configurations
+        ansible.builtin.debug:
+          var: snapper_configs 
 
 
       - name: Activate SMB shares and grant ACL permissions
