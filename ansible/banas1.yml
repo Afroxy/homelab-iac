@@ -54,12 +54,6 @@
       - name: Install additional packages
         ansible.builtin.apt:
           name: 
-            #- hdparm   # install if APM is available on your drive
-            - sdparm
-            - smartmontools
-            #- git
-            #- make
-            #- build-essential
             - postfix   # Message Transfer Agend (MTA) for logging cronjob output
             - samba
             - acl
@@ -71,78 +65,6 @@
         ansible.builtin.apt:
           update_cache: yes
           upgrade: yes
-
-      ## ToDo: Fix compilation of openSeaChest. Problem with 32-bit system
-
-      # - name: Clone openSeaChest repository
-      #   ansible.builtin.git:
-      #     repo: "https://github.com/Seagate/openSeaChest.git"
-      #     dest: "/root/openSeaChest"
-      #     version: "HEAD"
-      #     recursive: yes
-
-      # - name: Compile openSeaChest (Seagate Utility for managing power saving on EPC supporting hdds)
-      #   # https://forum.pine64.org/showthread.php?tid=7137
-      #   ansible.builtin.shell: |
-      #     cd /root/openSeaChest/Make/gcc && CXXFLAGS="-D_FILE_OFFSET_BITS=64" make release
-
-      # - name: Move compiled openSeaChest
-      #   ansible.builtin.shell: |
-      #     mkdir -pv /opt/openSeaChest/bin && mv openseachest_exes/* /opt/openSeaChest/bin
-      #     cd / && rm -rf /root/openSeaChest
-      #     cat <<<'export PATH="$PATH:/opt/openSeaChest/bin"' >> /root/.bashrc
-
-
-      ## Alternative EPC management tool: https://github.com/tyan-boot/wdepc
-      ## Problem: Disk still spins down after some time
-      - name: Check if wdepc command is available
-        ansible.builtin.command:
-          cmd: which wdepc
-        register: result
-        ignore_errors: yes
-
-      - name: Install WDEPC if not available
-        block:
-
-        - name: Install WDEPC | Clone WDEPC repository
-          ansible.builtin.git:
-            repo: "https://github.com/tyan-boot/wdepc"
-            dest: "$HOME/wdepc"
-
-        - name: Install WDEPC | Install Rust compiler and Cargo
-          ansible.builtin.shell: |
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-        - name: Install WDEPC | Compile using Cargo
-          ansible.builtin.shell: |
-            $HOME/.cargo/bin/cargo build --release
-          args:
-            chdir: $HOME/wdepc
-
-        - name: Install WDEPC | Copy wdepc to /usr/local/bin
-          ansible.builtin.copy:
-            src: $HOME/wdepc/target/release/wdepc
-            dest: /usr/local/bin/wdepc
-            mode: '0755'
-            remote_src: yes
-
-        - name: Install WDEPC | Remove source files
-          ansible.builtin.file:
-            path: $HOME/wdepc
-            state: absent
-
-        - name: Install WDEPC | Uninstall Rust
-          ansible.builtin.command: $HOME/.cargo/bin/rustup self uninstall -y
-
-        when: result.stdout == ""
-
-
-      - name: Set WDEPC timers (spindown after 90 minutes)
-        ansible.builtin.shell: |
-          wdepc -d /dev/sda set-timer idle_a 600 --save --enable true
-          wdepc -d /dev/sda set-timer idle_b 6000 --save --enable true
-          wdepc -d /dev/sda set-timer idle_c 18000 --save --enable true
-          wdepc -d /dev/sda set-timer standby_z 54000 --save --enable true
 
       ## Workaround to prevent disk spin down
       - name: Add periodic disk read operation to the cron tab
@@ -200,33 +122,6 @@
           mode: "0775"
         loop: "{{ btrfs_subvolumes }}"
 
-      - name: Create btrfs snapshot subvolume
-        community.general.btrfs_subvolume:
-          name: "{{ btrfs_snapshot_path }}"
-
-      - name: Set ownership and permissions for snapshot subvolume
-        ansible.builtin.file:
-          path: "{{ mount_point }}/{{ btrfs_snapshot_path }}"
-          owner: root
-          group: rsync
-          mode: "0755"
-
-      - name: Upload btrfs snapshot script
-        ansible.builtin.template:
-          src: templates/btrfs_snapshot.sh
-          dest: /usr/local/bin/btrfs_snapshot.sh
-          owner: banas1
-          group: rsync
-          mode: '0770'
-
-      - name: Create a directory for btrfs snapshot logs in /var/log
-        ansible.builtin.file:
-          path: /var/log/btrfs
-          state: directory
-          owner: root
-          group: rsync
-          mode: '0774'
-
       - name: Upload rsync job script
         ansible.builtin.template:
           src: templates/rsync_pull_job.sh
@@ -250,15 +145,6 @@
           owner: root
           group: root
           mode: '0771'
-
-      - name: Create a cron job for btrfs snapshots
-        ansible.builtin.cron:
-          name: "Btrfs Snapshot for {{ item.0 }}"
-          hour: "{{ item.1 }}"
-          minute: 59
-          user: "{{ rsync_user }}"
-          job: "sudo /usr/local/bin/btrfs_snapshot.sh {{ mount_point }}/{{ item.0 }} {{ mount_point }}/{{ btrfs_snapshot_path }} >>/var/log/cron/btrfs_snapshot_{{ item.0 | basename }} 2>&1"
-        loop: "{{ btrfs_subvolumes | zip(btrfs_snapshot_hours) | list }}"
 
       - name: Create a cron job for rsync tasks
         ansible.builtin.cron:
