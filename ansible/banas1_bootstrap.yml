@@ -89,7 +89,7 @@
         path: "{{ mount_point }}"
         state: directory
         owner: root
-        group: rsync
+        group: root
         mode: '0774'
 
     - name: Mount the filesystem
