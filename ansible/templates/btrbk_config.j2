@@ -1,0 +1,19 @@
+timestamp_format        short
+
+preserve_day_of_week    sunday
+preserve_hour_of_day    0
+
+# Retention poicy for snapshots
+snapshot_preserve_min   1d              # keep all snapshots for at least one day
+snapshot_preserve       24h 14d 12m     # 24 hourly, 14 daily, 12 monthly
+
+# Retention policy for backups (sent to other hosts)
+#target_preserve_min     no
+#target_preserve                
+
+volume /mnt/data
+  snapshot_dir truenas/snapshots
+  subvolume {{ btrfs_subvolumes[0] }}
+  subvolume {{ btrfs_subvolumes[1] }}
+  subvolume {{ btrfs_subvolumes[2] }}
+  subvolume {{ btrfs_subvolumes[3] }}

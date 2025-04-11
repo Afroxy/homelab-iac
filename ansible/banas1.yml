@@ -57,7 +57,7 @@
             - postfix   # Message Transfer Agend (MTA) for logging cronjob output
             - samba
             - acl
-            - snapper
+            - btrbk
           state: present
 
 
@@ -83,7 +83,7 @@
       - name: Generate a user for the rsync connection
         ansible.builtin.user:
           name: banas1
-          groups: banas1, rsync
+          groups: rsync
           shell: /bin/bash
           create_home: yes
           generate_ssh_key: yes
@@ -112,6 +112,7 @@
       - name: Create btrfs subvolumes
         community.general.btrfs_subvolume:
           name: "{{ item }}"
+          recursive: true
         loop: "{{ btrfs_subvolumes }}"
 
       - name: Set ownership and permissions for btrfs subvolumes
@@ -149,73 +150,87 @@
       - name: Create a cron job for rsync tasks
         ansible.builtin.cron:
           name: "Rsync pull from {{ item.0 }}"
+          cron_file: /etc/cron.d/rsync
+          day: "*"
           hour: "{{ item.2 }}"
           minute: 0
           user: "{{ rsync_user }}"
           job: "sudo /usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"
         loop: "{{ rsync_source_paths | zip(rsync_destination_paths, rsync_hours) | list }}"
 
-      - name: Configure Snapper for each btrfs subvolume
-        tags: snapper_config
-        include_tasks: snapper.yml
-        vars:
-          config.name: "{{ item | basename }}"
-          config.path: "{{ [mount_point, item] | path_join }}"
-        loop: "{{ btrfs_subvolumes }}"
 
-      - name: Get existing snapper configurations
-        ansible.builtin.shell: snapper list-configs
-        register: snapper_configs
-
-      - name: List existing snapper configurations
-        ansible.builtin.debug:
-          var: snapper_configs 
-
-
-      - name: Activate SMB shares and grant ACL permissions
-        tags: smb_enable
+      - name: Set up btrfs snapshots with btrbk
+        tags: btrbk
         block:
+          - name: Create the snapshot directory
+            ansible.builtin.file:
+              path: /mnt/data/truenas/snapshots
+              state: directory
+              mode: '0644'
+
+          - name: Upload the config file
+            ansible.builtin.template:
+              src: templates/btrbk_config.j2
+              dest: "/etc/btrbk/btrbk.conf"
+              owner: root
+              group: root
+              mode: '0644'
+
+          - name: Create a cron job file for btrbk snapshots
+            ansible.builtin.cron:
+              name: "Btrbk periodic snapshots"
+              cron_file: /etc/cron.d/btrbk
+              day: "*"
+              hour: "*/1"
+              minute: "0"
+              user: "root"
+              job: "exec /usr/bin/btrbk -c /etc/btrbk/btrbk.conf run"
+
+
+      # - name: Activate SMB shares and grant ACL permissions
+      #   tags: smb_enable
+      #   block:
   
-        - name: Configure smb.conf for samba share
-          ansible.builtin.template:
-            src: templates/smb.conf.j2
-            dest: /etc/samba/smb.conf
+      #   - name: Configure smb.conf for samba share
+      #     ansible.builtin.template:
+      #       src: templates/smb.conf.j2
+      #       dest: /etc/samba/smb.conf
 
-        - name: Add SMB user and password
-          ansible.builtin.shell: "smbpasswd -s -a {{ smb_user }}"
-          args:
-            stdin: "{{ smb_password}}\n{{ smb_password }}"
+      #   - name: Add SMB user and password
+      #     ansible.builtin.shell: "smbpasswd -s -a {{ smb_user }}"
+      #     args:
+      #       stdin: "{{ smb_password}}\n{{ smb_password }}"
 
-        - name: Configure ACLs for admin access to SMB shares
-          ansible.posix.acl:
-            path: /mnt/data
-            entity: "{{ smb_user }}"
-            etype: user
-            permissions: rx
-            recursive: true
-            state: present
+      #   - name: Configure ACLs for admin access to SMB shares
+      #     ansible.posix.acl:
+      #       path: /mnt/data
+      #       entity: "{{ smb_user }}"
+      #       etype: user
+      #       permissions: rx
+      #       recursive: true
+      #       state: present
 
-        notify: 
-          - Enable samba
-          - Restart samba
+      #   notify: 
+      #     - Enable samba
+      #     - Restart samba
 
-      - name: Deactivate SMB shares and remove ACL permissions
-        tags: smb_disable
-        block:
+      # - name: Deactivate SMB shares and remove ACL permissions
+      #   tags: smb_disable
+      #   block:
 
-        - name: Remove SMB user and password
-          ansible.builtin.shell: "smbpasswd -s -x {{ smb_user }}"
-          ignore_errors: true
+      #   - name: Remove SMB user and password
+      #     ansible.builtin.shell: "smbpasswd -s -x {{ smb_user }}"
+      #     ignore_errors: true
         
-        - name: Remove ACLs for admin access to SMB shares
-          ansible.posix.acl:
-            path: /mnt/data
-            entity: "{{ smb_user }}"
-            etype: user
-            recursive: true
-            state: absent  
+      #   - name: Remove ACLs for admin access to SMB shares
+      #     ansible.posix.acl:
+      #       path: /mnt/data
+      #       entity: "{{ smb_user }}"
+      #       etype: user
+      #       recursive: true
+      #       state: absent  
 
-        notify: Disable samba 
+      #   notify: Disable samba 
 
       - name: Fetch SSH public key
         ansible.builtin.slurp:
