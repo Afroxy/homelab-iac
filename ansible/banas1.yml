@@ -187,50 +187,32 @@
               job: "exec /usr/bin/btrbk -c /etc/btrbk/btrbk.conf run"
 
 
-      # - name: Activate SMB shares and grant ACL permissions
-      #   tags: smb_enable
-      #   block:
-  
-      #   - name: Configure smb.conf for samba share
-      #     ansible.builtin.template:
-      #       src: templates/smb.conf.j2
-      #       dest: /etc/samba/smb.conf
+      - name: Activate SMB share
+        tags: smb_enable
+        block:
+          - name:  Upload smb.conf 
+            ansible.builtin.template:
+              src: templates/smb.conf_root.j2
+              dest: /etc/samba/smb.conf
 
-      #   - name: Add SMB user and password
-      #     ansible.builtin.shell: "smbpasswd -s -a {{ smb_user }}"
-      #     args:
-      #       stdin: "{{ smb_password}}\n{{ smb_password }}"
+          - name: Add SMB user and password
+            ansible.builtin.shell: "smbpasswd -s -a {{ smb_user }}"
+            args:
+              stdin: "{{ smb_password}}\n{{ smb_password }}"  
 
-      #   - name: Configure ACLs for admin access to SMB shares
-      #     ansible.posix.acl:
-      #       path: /mnt/data
-      #       entity: "{{ smb_user }}"
-      #       etype: user
-      #       permissions: rx
-      #       recursive: true
-      #       state: present
+        notify: 
+          - Enable samba
+          - Restart samba           
 
-      #   notify: 
-      #     - Enable samba
-      #     - Restart samba
+      - name: Deactivate SMB shares and remove ACL permissions
+        tags: smb_disable
+        block:
 
-      # - name: Deactivate SMB shares and remove ACL permissions
-      #   tags: smb_disable
-      #   block:
+        - name: Remove SMB user and password
+          ansible.builtin.shell: "pdbedit -x {{ smb_user }}"
+          #ignore_errors: true
 
-      #   - name: Remove SMB user and password
-      #     ansible.builtin.shell: "smbpasswd -s -x {{ smb_user }}"
-      #     ignore_errors: true
-        
-      #   - name: Remove ACLs for admin access to SMB shares
-      #     ansible.posix.acl:
-      #       path: /mnt/data
-      #       entity: "{{ smb_user }}"
-      #       etype: user
-      #       recursive: true
-      #       state: absent  
-
-      #   notify: Disable samba 
+        notify: Disable samba 
 
       - name: Fetch SSH public key
         ansible.builtin.slurp:
@@ -243,14 +225,7 @@
 
 
 ## TODO:
-# - how to preserve file ownership with rsync (maybe must run task as root)
 # - email results of snapshots and rsync
-# - only run rsync if previous snapshot was sucessful
-# - check directory permissions and restrict if possible
-# - check permissions of rsynced files
-# - check restore of btrfs snapshot
-
-
 
 
 
