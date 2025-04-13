@@ -1,0 +1,8 @@
+# pip install -r requirements_python.txt
+# In WSL: 
+#    ansible --version  # get python venv used by ansible
+#    source /home/<username>/.local/pipx/venvs/ansible-core/bin/activate     # activate venv of ansible
+#    python3 -m pip install <package_name>
+
+proxmoxer
+requests

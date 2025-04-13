@@ -1,0 +1,37 @@
+---
+
+
+- name: Fail if container already exists
+  ansible.builtin.fail:
+    msg: "The container {{ vmid }}-{{ hostname }} already exists! Set delete_existing=true to remove the container before installing."
+  when: lxc_exists
+
+
+- name: Install LXC
+  community.general.proxmox:
+    api_host: "{{ proxmox_host }}"
+    api_user: "{{ proxmox_user }}"
+    api_password: "{{ proxmox_password }}"
+    node: '{{ proxmox_node }}'
+    vmid: '{{ vmid }}'
+    hostname: '{{ hostname }}'
+    password: '{{ root_password }}'
+    ostype: '{{ os_type }}'
+    ostemplate: '{{ os_template }}'
+    cores: '{{ cores }}'
+    memory: '{{ memory }}'
+    swap: '{{ swap }}'
+    netif: '{"net0":"name={{ net.name }},bridge={{ net.bridge }},ip={{ net.ip }},gw={{ net.gw }}"}'
+    nameserver: '{{ dns_server }}'
+    onboot: '{{ start_on_boot }}'
+    timezone: '{{ timezone }}'
+    unprivileged: '{{ unprivileged }}'
+    
+
+    # rootfs volume
+    disk_volume:
+      storage: '{{ rootfs_storage}}'
+      size: '{{ rootfs_size}}'
+
+    state: present
+  delegate_to: localhost  # must run on localhost since proxmox api is used, not ssh

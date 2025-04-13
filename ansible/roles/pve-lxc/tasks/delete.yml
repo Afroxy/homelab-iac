@@ -1,0 +1,32 @@
+---
+
+- name: Remove LXC container
+  block:
+    - name: Ensure container is stopped
+      community.general.proxmox:
+        api_host: "{{ proxmox_host }}"
+        api_user: "{{ proxmox_user }}"
+        api_password: "{{ proxmox_password }}"
+        node: '{{ proxmox_node }}'
+        vmid: '{{ vmid }}'
+        state: stopped
+      when: lxc_running
+    
+    - name: Set fact lxc_running
+      set_fact:
+        lxc_running: false
+
+    - name: Delete Container
+      community.general.proxmox:
+        api_host: "{{ proxmox_host }}"
+        api_user: "{{ proxmox_user }}"
+        api_password: "{{ proxmox_password }}"
+        node: '{{ proxmox_node }}'
+        vmid: '{{ vmid }}'
+        state: absent
+
+    - name: Set fact to non-existing
+      set_fact:
+        lxc_exists: false
+
+  delegate_to: localhost

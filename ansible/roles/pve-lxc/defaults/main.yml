@@ -1,0 +1,50 @@
+---
+### Role Options
+delete: true
+install: true
+delete_existing: false      # Delete LXC before installation if already existing
+configure: true
+start: false
+
+
+### Proxmox API variables
+proxmox_host: pve
+proxmox_user: root@pam
+proxmox_password: 12345
+proxmox_node: pve
+vmid: 999
+hostname: test
+root_password: 12345
+os_type: auto
+os_template: local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst
+cores: 2
+memory: 1024
+swap: 0
+net:
+  name: eth0
+  bridge: vmbr0
+  ip: 192.168.1.222/24
+  gw: 192.168.1.1
+dns_server: 192.168.1.1
+start_on_boot: false
+timezone: Europe/Berlin
+unprivileged: true
+
+# rootfs
+rootfs_storage: local-lvm
+rootfs_size: 8        # size in GB
+
+# additional mounts
+mounts:
+  - id: mp1
+    mountpoint: /mnt/data
+    size: 10
+    storage: local-lvm
+    #volume: lxc-{{vmid}}-disk-1  # must exist on the host if defined
+    
+  - id: mp2
+    mountpoint: /mnt/media
+    size: 10
+    storage: local-lvm
+    #volume: lxc-{{vmid}}-disk-2  # must exist on the host if defined
+    

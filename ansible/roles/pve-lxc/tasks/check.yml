@@ -1,0 +1,72 @@
+---
+
+# - name: Check if all variables are defined
+#   debug:
+#     msg: |
+#       api_host: "{{ proxmox_host | default(' is undefined') }}"
+#       api_user: "{{ proxmox_user | default(' is undefined') }}"
+#       api_password: "{{ proxmox_password | default(' is undefined') }}"
+#       node: "{{ proxmox_node | default(' is undefined') }}"
+#       vmid: "{{ vmid | default(' is undefined') }}"
+#       hostname: "{{ hostname | default(' is undefined') }}"
+#       password: "{{ root_password | default(' is undefined') }}"
+#       ostype: "{{ os_type | default(' is undefined') }}"
+#       ostemplate: "{{ os_template | default(' is undefined') }}"
+#       cores: "{{ cores | default(' is undefined') }}"
+#       memory: "{{ memory | default(' is undefined') }}"
+#       swap: "{{ swap | default(' is undefined') }}"
+#       netif: "{'net0':'name={{ net.name | default(' is undefined') }},bridge={{ net.bridge | default(' is undefined') }},ip={{ net.ip | default(' is undefined') }},gw={{ net.gw | default(' is undefined') }}'}"
+#       nameserver: "{{ dns_server | default(' is undefined') }}"
+#       onboot: "{{ start_on_boot | default(' is undefined') }}"
+#       storage: "{{ rootfs_storage | default(' is undefined') }}"
+#       disk: "{{ rootfs_size}}"
+
+
+- name: Get all Proxmox VMs and containers
+  community.general.proxmox_vm_info:    
+    api_host: "{{ proxmox_host }}"
+    api_user: "{{ proxmox_user }}"
+    api_password: "{{ proxmox_password }}"
+    node: '{{ proxmox_node }}'
+  register: proxmox_info
+  delegate_to: localhost  # must run on localhost since proxmox api is used, not ssh
+
+- name: Display container info
+  ansible.builtin.debug:
+    msg: "{{ proxmox_info }}"
+
+
+- name: Check if LXC container exists
+  set_fact:
+    lxc_exists: >-
+      {{
+        proxmox_info.proxmox_vms 
+        | selectattr('vmid', 'equalto', vmid | int) 
+        | selectattr('type', 'equalto', 'lxc') 
+        | list 
+        | length > 0 
+        }}
+
+
+- name: Debug - Show container existence
+  debug:
+    msg: "Container with VMID {{ vmid }} exists: {{ lxc_exists }}"
+
+
+
+- name: Set default value for "lxc_running"
+  set_fact:
+    lxc_running: false
+
+- name: Check if LXC container is started
+  set_fact:
+    lxc_running: >-
+      {{
+        proxmox_info.proxmox_vms
+        | selectattr('vmid', 'equalto', vmid | int)
+        | selectattr('type', 'equalto', 'lxc')
+        | map(attribute='status')
+        | list
+        | first == 'running'
+      }} 
+  when: lxc_exists

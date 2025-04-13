@@ -1,0 +1,18 @@
+---
+
+- name: Start LXC container
+  community.general.proxmox:
+    api_host: "{{ proxmox_host }}"
+    api_user: "{{ proxmox_user }}"
+    api_password: "{{ proxmox_password }}"
+    node: '{{ proxmox_node }}'
+    vmid: '{{ vmid }}'
+    hostname: '{{ hostname }}'
+
+    state: started
+  delegate_to: localhost
+
+
+- name: Let it settle
+  pause:
+    seconds: 5

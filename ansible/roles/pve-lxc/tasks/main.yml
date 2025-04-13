@@ -1,0 +1,48 @@
+
+---
+
+
+- name: Get Proxmox infos
+  ansible.builtin.include_tasks:
+    check.yml
+
+
+- name: Delete LXC container
+  ansible.builtin.include_tasks:
+    delete.yml
+  when: (install and delete_existing and lxc_exists) or (delete)
+
+
+- name: Install LXC container
+  ansible.builtin.include_tasks:
+    install.yml
+  when: install
+
+
+- name: Configure LXC container
+  ansible.builtin.include_tasks:
+    configure.yml
+  when: configure
+
+
+- name: Start LXC container
+  ansible.builtin.include_tasks:
+    start.yml
+  when: start 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

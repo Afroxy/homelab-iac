@@ -1,0 +1,16 @@
+---
+
+- name: Mount volumes to LXC
+  community.general.proxmox:
+    api_host: "{{ proxmox_host }}"
+    api_user: "{{ proxmox_user }}"
+    api_password: "{{ proxmox_password }}" 
+    node: '{{ proxmox_node }}'
+    vmid: '{{ vmid }}'
+    hostname: '{{ hostname }}'
+
+    mount_volumes: "{{ [item] }}"
+    state: present
+    update: true    # update an existing container
+  loop: "{{ mounts }}"
+  delegate_to: localhost
