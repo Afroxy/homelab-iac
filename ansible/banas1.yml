@@ -58,6 +58,7 @@
             - samba
             - acl
             - btrbk
+            - util-linux # for RTC wake
           state: present
 
 
@@ -112,7 +113,7 @@
       - name: Create btrfs subvolumes
         community.general.btrfs_subvolume:
           name: "{{ item }}"
-          recursive: true
+          #recursive: true
         loop: "{{ btrfs_subvolumes }}"
 
       - name: Set ownership and permissions for btrfs subvolumes
@@ -144,19 +145,27 @@
           path: /var/log/cron
           state: directory
           owner: root
-          group: root
+          group: rsync
           mode: '0771'
 
-      - name: Create a cron job for rsync tasks
-        ansible.builtin.cron:
-          name: "Rsync pull from {{ item.0 }}"
-          cron_file: /etc/cron.d/rsync
-          day: "*"
-          hour: "{{ item.2 }}"
-          minute: 0
-          user: "{{ rsync_user }}"
-          job: "sudo /usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"
-        loop: "{{ rsync_source_paths | zip(rsync_destination_paths, rsync_hours) | list }}"
+      - name: Create a directory for snap-sync-sleep logs in /var/log
+        ansible.builtin.file:
+          path: /var/log/sss
+          state: directory
+          owner: root
+          group: rsync
+          mode: '0771'
+
+      # - name: Create a cron job for rsync tasks
+      #   ansible.builtin.cron:
+      #     name: "Rsync pull from {{ item.0 }}"
+      #     cron_file: /etc/cron.d/rsync
+      #     day: "*"
+      #     hour: "{{ item.2 }}"
+      #     minute: 0
+      #     user: "{{ rsync_user }}"
+      #     job: "sudo /usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"
+      #   loop: "{{ rsync_source_paths | zip(rsync_destination_paths, rsync_hours) | list }}"
 
 
       - name: Set up btrfs snapshots with btrbk
@@ -176,15 +185,89 @@
               group: root
               mode: '0644'
 
-          - name: Create a cron job file for btrbk snapshots
-            ansible.builtin.cron:
-              name: "Btrbk periodic snapshots"
-              cron_file: /etc/cron.d/btrbk
-              day: "*"
-              hour: "*/1"
-              minute: "0"
-              user: "root"
-              job: "exec /usr/bin/btrbk -c /etc/btrbk/btrbk.conf run"
+          # - name: Create a cron job file for btrbk snapshots
+          #   ansible.builtin.cron:
+          #     name: "Btrbk periodic snapshots"
+          #     cron_file: /etc/cron.d/btrbk
+          #     day: "*"
+          #     hour: "*/1"
+          #     minute: "0"
+          #     user: "root"
+          #     job: "exec /usr/bin/btrbk -c /etc/btrbk/btrbk.conf run"
+
+      - name: Upload the rtcwake script
+        ansible.builtin.template:
+          src: templates/good_night.j2
+          dest: "/usr/local/bin/good_night.sh"
+          owner: banas1
+          group: rsync
+          mode: '0770'
+
+      - name: Create a bash script containing all tasks
+        tags: tasks
+        block:
+
+        - name: Setup logging
+          ansible.builtin.blockinfile:
+            path: /usr/local/bin/snap_sync_sleep.sh
+            block: |
+              #!/bin/bash
+
+              LOG_FILE="/var/log/sss/snap_sync_sleep_$(date +%Y-%m-%d_%H-%M-%S).log"
+
+              log() {
+                  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+              }
+
+              run_and_log() {
+                  CMD="$1"
+                  log "Running: $CMD"
+                  eval "$CMD"
+                  STATUS=$?
+                  if [ $STATUS -eq 0 ]; then
+                      log "Success: '$CMD' exited with code 0"
+                  else
+                      log "Error: '$CMD' exited with code $STATUS"
+                  fi
+                  echo "" >> "$LOG_FILE"
+              }
+            append_newline: true
+            prepend_newline: true
+            create: true
+            owner: banas1
+            group: rsync
+            mode: '0770'
+            insertbefore: BOF
+          
+        - name: Append snapshot task
+          ansible.builtin.lineinfile:
+            path: /usr/local/bin/snap_sync_sleep.sh
+            line: 'run_and_log "sudo /usr/bin/btrbk -c /etc/btrbk/btrbk.conf run"'
+            insertafter: EOF
+
+        - name: Append rsync tasks
+          ansible.builtin.lineinfile:
+            path: /usr/local/bin/snap_sync_sleep.sh
+            line: 'run_and_log "sudo /usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"'
+            insertafter: EOF      
+          loop: "{{ rsync_source_paths | zip(rsync_destination_paths, rsync_hours) | list }}"
+
+        - name: Append RTC timer
+          ansible.builtin.lineinfile:
+            path: /usr/local/bin/snap_sync_sleep.sh
+            line: 'run_and_log "sudo /usr/local/bin/good_night.sh"'
+            insertafter: EOF 
+
+        - name: Create a cron job for the tasks to run (sequentially)
+          ansible.builtin.cron:
+            name: "Snapshot - Rsync - Sleep"
+            cron_file: /etc/cron.d/srs
+            day: "*"
+            hour: "{{ tasks_hour }}"
+            minute: "{{ tasks_minute }}"
+            user: "banas1"
+            job: "/usr/local/bin/snap_sync_sleep.sh"       
+      
 
 
       - name: Activate SMB share
@@ -192,7 +275,7 @@
         block:
           - name:  Upload smb.conf 
             ansible.builtin.template:
-              src: templates/smb.conf_root.j2
+              src: templates/smb.conf.j2
               dest: /etc/samba/smb.conf
 
           - name: Add SMB user and password
@@ -204,7 +287,7 @@
           - Enable samba
           - Restart samba           
 
-      - name: Deactivate SMB shares and remove ACL permissions
+      - name: Deactivate SMB share
         tags: smb_disable
         block:
 
@@ -213,6 +296,7 @@
           #ignore_errors: true
 
         notify: Disable samba 
+
 
       - name: Fetch SSH public key
         ansible.builtin.slurp:
