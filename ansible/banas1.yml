@@ -54,11 +54,12 @@
       - name: Install additional packages
         ansible.builtin.apt:
           name: 
-            - postfix   # Message Transfer Agend (MTA) for logging cronjob output
+            - postfix      # Message Transfer Agend (MTA) for logging cronjob output
             - samba
             - acl
-            - btrbk
-            - util-linux # for RTC wake
+            - btrbk       # btrfs snapshot utility
+            - util-linux  # for RTC wake
+            - ethtool     # for WOL
           state: present
 
 
@@ -67,7 +68,7 @@
           update_cache: yes
           upgrade: yes
 
-      ## Workaround to prevent disk spin down
+      # Workaround to prevent disk spin down
       - name: Add periodic disk read operation to the cron tab
         ansible.builtin.cron:
           name: "Periodic disk read operation"
@@ -83,7 +84,7 @@
 
       - name: Generate a user for the rsync connection
         ansible.builtin.user:
-          name: banas1
+          name: "{{ rsync_user }}"
           groups: rsync
           shell: /bin/bash
           create_home: yes
@@ -93,10 +94,10 @@
           ssh_key_file: .ssh/id_rsa
           force: no # yes: overwrites existing key
 
-      - name: Enable passwordless sudo for banas1
+      - name: Enable passwordless sudo for "{{ rsync_user }}"
         copy:
-          dest: "/etc/sudoers.d/banas1"
-          content: "banas1 ALL=(ALL) NOPASSWD:ALL"
+          dest: "/etc/sudoers.d/{{ rsync_user }}"
+          content: "{{ rsync_user }} ALL=(ALL) NOPASSWD:ALL"
           owner: root
           group: root
           mode: 0440
@@ -107,28 +108,66 @@
         ansible.builtin.file:
           path: "{{ mount_point }}"
           owner: root
-          group: rsync
+          group: root
           mode: "0775"
+
+      - name: Ensure directory path for btrfs subvolumes exists
+        ansible.builtin.file:
+          path: "{{ (mount_point ~ '/' ~ item) | dirname }}"
+          state: directory
+          owner: root
+          group: root
+          mode: '0775'
+        loop: "{{ btrfs_subvolumes }}"
 
       - name: Create btrfs subvolumes
         community.general.btrfs_subvolume:
           name: "{{ item }}"
-          #recursive: true
         loop: "{{ btrfs_subvolumes }}"
 
       - name: Set ownership and permissions for btrfs subvolumes
         ansible.builtin.file:
           path: "{{ mount_point }}/{{ item }}"
           owner: root
-          group: rsync
+          group: root
           mode: "0775"
         loop: "{{ btrfs_subvolumes }}"
+
+      - name: Ensure remounting of btrfs volume after suspend
+        block:
+          - name: Create systemd service to remount after suspend
+            copy:
+              dest: /etc/systemd/system/remount-after-suspend.service
+              owner: root
+              group: root
+              mode: '0644'
+              content: |
+                [Unit]
+                Description=Remount volume after suspend
+                After=suspend.target
+                ConditionPathExists={{ mount_point }}
+
+                [Service]
+                Type=oneshot
+                ExecStart=/bin/bash -c 'sleep 20 && mount {{ mount_point }}'
+
+                [Install]
+                WantedBy=suspend.target
+
+          - name: Reload systemd to pick up new service
+            command: systemctl daemon-reload
+
+          - name: Enable the remount service
+            systemd:
+              name: remount-after-suspend.service
+              enabled: true
+
 
       - name: Upload rsync job script
         ansible.builtin.template:
           src: templates/rsync_pull_job.sh
           dest: /usr/local/bin/rsync_pull_job.sh
-          owner: banas1
+          owner: "{{ rsync_user }}"
           group: rsync
           mode: '0770'
 
@@ -156,18 +195,6 @@
           group: rsync
           mode: '0771'
 
-      # - name: Create a cron job for rsync tasks
-      #   ansible.builtin.cron:
-      #     name: "Rsync pull from {{ item.0 }}"
-      #     cron_file: /etc/cron.d/rsync
-      #     day: "*"
-      #     hour: "{{ item.2 }}"
-      #     minute: 0
-      #     user: "{{ rsync_user }}"
-      #     job: "sudo /usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"
-      #   loop: "{{ rsync_source_paths | zip(rsync_destination_paths, rsync_hours) | list }}"
-
-
       - name: Set up btrfs snapshots with btrbk
         tags: btrbk
         block:
@@ -185,27 +212,23 @@
               group: root
               mode: '0644'
 
-          # - name: Create a cron job file for btrbk snapshots
-          #   ansible.builtin.cron:
-          #     name: "Btrbk periodic snapshots"
-          #     cron_file: /etc/cron.d/btrbk
-          #     day: "*"
-          #     hour: "*/1"
-          #     minute: "0"
-          #     user: "root"
-          #     job: "exec /usr/bin/btrbk -c /etc/btrbk/btrbk.conf run"
-
       - name: Upload the rtcwake script
+        tags: rtcwake
         ansible.builtin.template:
-          src: templates/good_night.j2
+          src: templates/good_night.sh
           dest: "/usr/local/bin/good_night.sh"
-          owner: banas1
+          owner: "{{ rsync_user }}"
           group: rsync
           mode: '0770'
 
       - name: Create a bash script containing all tasks
         tags: tasks
         block:
+
+        - name: Remove existing script
+          ansible.builtin.file:
+            path: /usr/local/bin/snap_sync_sleep.sh
+            state: absent
 
         - name: Setup logging
           ansible.builtin.blockinfile:
@@ -234,7 +257,7 @@
             append_newline: true
             prepend_newline: true
             create: true
-            owner: banas1
+            owner: "{{ rsync_user }}"
             group: rsync
             mode: '0770'
             insertbefore: BOF
@@ -255,19 +278,26 @@
         - name: Append RTC timer
           ansible.builtin.lineinfile:
             path: /usr/local/bin/snap_sync_sleep.sh
-            line: 'run_and_log "sudo /usr/local/bin/good_night.sh"'
+            line: 'run_and_log "sudo /usr/local/bin/good_night.sh {{wake_hour}} {{wake_minute}} 2>&1 | tee -a \"$LOG_FILE\""'
             insertafter: EOF 
 
         - name: Create a cron job for the tasks to run (sequentially)
           ansible.builtin.cron:
             name: "Snapshot - Rsync - Sleep"
-            cron_file: /etc/cron.d/srs
+            cron_file: /etc/cron.d/snap_sync_sleep
             day: "*"
             hour: "{{ tasks_hour }}"
             minute: "{{ tasks_minute }}"
-            user: "banas1"
-            job: "/usr/local/bin/snap_sync_sleep.sh"       
-      
+            user: "{{ rsync_user }}"
+            job: "/usr/local/bin/snap_sync_sleep.sh"    
+
+
+      #- name: Ensure the remote machine for rsync is a known host
+          # TODO!
+
+      # - name: Configure wake on lan
+          # TODO!
+
 
 
       - name: Activate SMB share
@@ -300,7 +330,7 @@
 
       - name: Fetch SSH public key
         ansible.builtin.slurp:
-          src: /home/banas1/.ssh/id_rsa.pub
+          src: "/home/{{ rsync_user }}/.ssh/id_rsa.pub"
         register: ssh_key_pub
 
       - name: Display SSH public key -> transfer to primary NAS
