@@ -72,6 +72,7 @@
             device: "{{ disk_device }}"
             number: 1
             label: gpt
+            name: GPT_Data_Partition
             part_end: "100%"
             state: present
 
@@ -79,10 +80,45 @@
           community.general.filesystem:
             fstype: "{{ filesystem_type }}"
             dev: "{{ disk_device }}{{ partition_number }}"
-            force: true # overwrite existing filesystem
+            #force: true # overwrite existing filesystem
+        
+        - name: Get disk info from parted for {{ disk_device }}
+          ansible.builtin.command: "parted -s {{ disk_device }} print"
+          register: parted_output
+          changed_when: false
+        
+        - name: Print parted {{ disk_device }} info
+          ansible.builtin.debug:
+            var: parted_output.stdout_lines
+          changed_when: false
 
       when: user_response.user_input | lower == "yes"
 
+    - name: Get UUID of {{ disk_device }}
+      ansible.builtin.command: blkid -s UUID -o value {{ disk_device }}{{ partition_number }}
+      register: disk_uuid
+      changed_when: false # No changes are made
+
+    - name: Create directory for ansible custom facts
+      ansible.builtin.file:
+        state: directory
+        recurse: true
+        path: /etc/ansible/facts.d
+
+    - name: Save disk UUID as a persistent custom fact
+      ansible.builtin.copy:
+        dest: /etc/ansible/facts.d/disk.fact
+        content: |
+          {
+            "uuid": "{{ disk_uuid.stdout }}" 
+          }
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Re-read facts after adding custom fact
+      ansible.builtin.setup:
+        filter: ansible_local
 
     - name: Create the mount point directory
       ansible.builtin.file:
@@ -92,22 +128,28 @@
         group: root
         mode: '0774'
 
-    - name: Mount the filesystem
+    - name: Mount the filesystem (also adds entry to /etc/fstab for persistent mount)
       ansible.posix.mount:
         path: "{{ mount_point }}"
-        src: "{{ disk_device }}{{ partition_number }}"
+        src: "UUID={{ ansible_local['disk']['uuid']}}"
         fstype: "{{ filesystem_type }}"
+        opts: defaults
+        boot: true # mount on boot
         state: mounted
 
-    - name: Add entry to /etc/fstab for persistent mount
-      ansible.builtin.lineinfile:
-        path: /etc/fstab
-        line: "{{ disk_device }}{{ partition_number }} {{ mount_point }} {{ filesystem_type }} defaults 0 0"
-        state: present
+    - name: Check if /etc/fstab is valid and does not cause errors
+      ansible.builtin.shell: mount -a
+      register: mount_output
+      changed_when: false  # No changes are made
 
-    - name: Reload systemd after fstab change
-      ansible.builtin.systemd:
-        daemon_reload: yes
+    - name: Print the output of mount -a for troubleshooting
+      ansible.builtin.debug:
+        var: mount_output.stdout
+
+    - name: Fail the playbook if mount -a failed
+      ansible.builtin.fail:
+        msg: "Error in /etc/fstab. Please check the debug output above."
+      when: mount_output.rc != 0 
 
     - name: Set hostname 
       ansible.builtin.hostname:

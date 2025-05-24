@@ -60,6 +60,7 @@
             - btrbk       # btrfs snapshot utility
             - util-linux  # for RTC wake
             - ethtool     # for WOL
+            - screen
           state: present
 
 
@@ -102,6 +103,15 @@
           group: root
           mode: 0440
           validate: /usr/sbin/visudo -csf %s
+
+      - name: Ensure the volume is mounted
+        ansible.posix.mount:
+          path: "{{ mount_point }}"
+          src: "UUID={{ ansible_local['disk']['uuid']}}"
+          fstype: "{{ filesystem_type }}"
+          opts: defaults
+          boot: true # mount on boot
+          state: mounted
 
 
       - name: Set ownership and permissions for the mounted drive
@@ -149,7 +159,8 @@
 
                 [Service]
                 Type=oneshot
-                ExecStart=/bin/bash -c 'sleep 20 && mount {{ mount_point }}'
+                ExecStart=/bin/bash -c 'sleep 20 && mount --uuid {{ ansible_local['disk']['uuid'] }} {{ mount_point }}'
+                ExecStartPost=/bin/sleep 2
 
                 [Install]
                 WantedBy=suspend.target
@@ -164,6 +175,7 @@
 
 
       - name: Upload rsync job script
+        tags: upload_script_rsync
         ansible.builtin.template:
           src: templates/rsync_pull_job.sh
           dest: /usr/local/bin/rsync_pull_job.sh
@@ -245,13 +257,20 @@
               run_and_log() {
                   CMD="$1"
                   log "Running: $CMD"
-                  eval "$CMD"
-                  STATUS=$?
+
+                  # Run the command, stream output to console and log
+                  {
+                      eval "$CMD"
+                  } 2>&1 | tee -a "$LOG_FILE"
+
+                  STATUS=${PIPESTATUS[0]}
+
                   if [ $STATUS -eq 0 ]; then
                       log "Success: '$CMD' exited with code 0"
                   else
                       log "Error: '$CMD' exited with code $STATUS"
                   fi
+
                   echo "" >> "$LOG_FILE"
               }
             append_newline: true
@@ -292,13 +311,19 @@
             job: "/usr/local/bin/snap_sync_sleep.sh"    
 
 
-      #- name: Ensure the remote machine for rsync is a known host
-          # TODO!
+      - name: Add SSH fingerprint of the rsync source host to known hosts of {{ rsync_user }}
+        ansible.builtin.known_hosts:
+          name: "{{ rsync_host }}"
+          key: "{{ lookup('pipe', 'ssh-keyscan -H ' + rsync_host) }}"
+          path: "/home/{{rsync_user}}/.ssh/known_hosts"
+          state: present
 
-      # - name: Configure wake on lan
-          # TODO!
-
-
+      - name: Add SSH fingerprint of the rsync source host to known hosts of root
+        ansible.builtin.known_hosts:
+          name: "{{ rsync_host }}"
+          key: "{{ lookup('pipe', 'ssh-keyscan -H ' + rsync_host) }}"
+          path: "/root/.ssh/known_hosts"
+          state: present
 
       - name: Activate SMB share
         tags: smb_enable

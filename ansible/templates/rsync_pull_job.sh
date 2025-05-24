@@ -13,39 +13,60 @@ RSYNC_HOST=$2
 SOURCE_PATH=$3
 DESTINATION_PATH=$4
 
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+
 LOG_PATH="/var/log/rsync"
-LOG_FILE="rsync_pull_job_$(date +'%Y-%m-%d_%H-%M-%S').log"
+mkdir -p "$LOG_PATH"
+LOG_OUT="rsync_pull_job_stdout_$TIMESTAMP.log"
+LOG_ERR="rsync_pull_job_stderr_$TIMESTAMP.log"
 
 ## Run rsync job, retry on errors until a maximum number of retries is reached
 MAX_RETRIES=10
-RSYNC_PULL_COMMAND=(rsync -e "ssh -i /home/banas1/.ssh/id_rsa" -av $RSYNC_USER@$RSYNC_HOST:$SOURCE_PATH $DESTINATION_PATH -A -X --inplace --delete --log-file="$LOG_PATH/$LOG_FILE" )
+
+RSYNC_PULL_COMMAND=(
+  rsync
+  -e "ssh -i /home/banas1/.ssh/id_rsa"
+  -av 
+  -A -X
+  --inplace
+  --delete 
+  "$RSYNC_USER@$RSYNC_HOST:$SOURCE_PATH" 
+  "$DESTINATION_PATH"
+)
+
+# echo "Running: ${RSYNC_PULL_COMMAND[@]}"
+
+
 i=0
 
-echo "[$(date)] Starting Rsync pull job from $SOURCE_PATH ..."
+echo "[$(date)] Starting Rsync pull job from $SOURCE_PATH ..." | tee -a "$LOG_PATH/$LOG_OUT" "$LOG_PATH/$LOG_ERR"
 
 while [ $i -lt $MAX_RETRIES ]; do
   i=$((i + 1))
   
-  # Run rsync command (create full log, but output only errors, warnings, etc)
-  "${RSYNC_PULL_COMMAND[@]}"  | grep -iE '(^sent|^received|^total|error|warning|permission|rsync)'
-  rsync_exit_code=${PIPESTATUS[0]}  # Get exit code of rsync, not grep
+  # Run rsync command and log stdout and stderr to different files
+  # redirect stdout to log file
+  # redirect stderr to log file and also show it on the console
+  "${RSYNC_PULL_COMMAND[@]}" > "$LOG_PATH/$LOG_OUT" 2> >(tee -a "$LOG_PATH/$LOG_ERR" | sed 's/^/  /' >&2 ) 
+
+  rsync_exit_code=$?   
   
   # If rsync succeeds, break the loop
   if [[ $rsync_exit_code -eq 0 ]]; then
     break
   fi
 
-  echo "Rsync failed, retrying... ($i/$MAX_RETRIES)"
+  echo "[$(date)] Rsync failed, retrying... ($i/$MAX_RETRIES)" | tee -a "$LOG_PATH/$LOG_OUT" "$LOG_PATH/$LOG_ERR"
   sleep 5  # Optional: Avoid hammering the server too quickly
 done
 
 # Exit with error if we hit max retries
 if [ $i -eq $MAX_RETRIES ]; then
-  echo "Hit maximum number of retries, giving up."
+  echo "[$(date)] Hit maximum number of retries, giving up." | tee -a "$LOG_PATH/$LOG_OUT" "$LOG_PATH/$LOG_ERR"
   exit 1
 fi
 
-echo "[$(date)] Rsync pull job from $SOURCE_PATH finished after $i retries."
+echo "[$(date)] Rsync pull job from $SOURCE_PATH finished after $i attempts." | tee -a "$LOG_PATH/$LOG_OUT" "$LOG_PATH/$LOG_ERR"
 exit 0  # Success
 
 
