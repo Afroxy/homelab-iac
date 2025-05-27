@@ -5,3 +5,6 @@
 collections:
 - community.general
 - ansible.posix
+
+roles:
+- geerlingguy.docker
