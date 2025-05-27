@@ -1,0 +1,21 @@
+---
+- name: Remove specified hosts from known_hosts
+  tags: clean_known_hosts
+  hosts: localhost
+  gather_facts: false
+  vars:
+    known_hosts_targets:
+      - "192.168.1.126"
+      - "dawarich"
+  tasks:
+    - name: Remove host from known_hosts file in windows
+      ansible.builtin.shell: "ssh-keygen -f {{ ssh_known_hosts_file_windows }} -R {{ item }}"
+      loop: "{{ known_hosts_targets }}"
+      register: remove_results
+      changed_when: "'not found' not in remove_results.stdout"
+
+    - name: Remove host from known_hosts file in WSL
+      ansible.builtin.shell: "ssh-keygen -f {{ ssh_known_hosts_file_wsl }} -R {{ item }}"
+      loop: "{{ known_hosts_targets }}"
+      register: remove_results
+      changed_when: "'not found' not in remove_results.stdout"
