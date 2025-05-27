@@ -26,8 +26,11 @@
     onboot: '{{ start_on_boot }}'
     timezone: '{{ timezone }}'
     unprivileged: '{{ unprivileged }}'
-    
+    features:
+      - "nesting={{ nesting }}"
+      - "keyctl={{ keyctl }}"
 
+    
     # rootfs volume
     disk_volume:
       storage: '{{ rootfs_storage}}'

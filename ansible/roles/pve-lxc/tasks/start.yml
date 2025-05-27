@@ -10,7 +10,12 @@
     hostname: '{{ hostname }}'
 
     state: started
+  when: not lxc_running
   delegate_to: localhost
+
+- name: Set fact lxc_running
+  set_fact:
+    lxc_running: false
 
 
 - name: Let it settle

@@ -29,22 +29,25 @@ dns_server: 192.168.1.1
 start_on_boot: false
 timezone: Europe/Berlin
 unprivileged: true
+nesting: 0
+keyctl: 0
+ssh_pubkey: "{{ lookup('file', hostvars['localhost'].ssh_pub_key_path) }}"
 
 # rootfs
 rootfs_storage: local-lvm
 rootfs_size: 8        # size in GB
 
-# additional mounts
-mounts:
-  - id: mp1
-    mountpoint: /mnt/data
-    size: 10
-    storage: local-lvm
-    #volume: lxc-{{vmid}}-disk-1  # must exist on the host if defined
+# # additional mounts
+# mounts:
+#   - id: mp1
+#     mountpoint: /mnt/data
+#     size: 10
+#     storage: local-lvm
+#     #volume: lxc-{{vmid}}-disk-1  # must exist on the host if defined
     
-  - id: mp2
-    mountpoint: /mnt/media
-    size: 10
-    storage: local-lvm
-    #volume: lxc-{{vmid}}-disk-2  # must exist on the host if defined
+#   - id: mp2
+#     mountpoint: /mnt/media
+#     size: 10
+#     storage: local-lvm
+#     #volume: lxc-{{vmid}}-disk-2  # must exist on the host if defined
     

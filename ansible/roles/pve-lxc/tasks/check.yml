@@ -60,13 +60,12 @@
 
 - name: Check if LXC container is started
   set_fact:
-    lxc_running: >-
-      {{
-        proxmox_info.proxmox_vms
-        | selectattr('vmid', 'equalto', vmid | int)
-        | selectattr('type', 'equalto', 'lxc')
-        | map(attribute='status')
-        | list
-        | first == 'running'
-      }} 
+    lxc_running: "{{ (
+      proxmox_info.proxmox_vms
+      | selectattr('vmid', 'equalto', vmid | int)
+      | selectattr('type', 'equalto', 'lxc')
+      | map(attribute='status')
+      | list
+      | first
+      ) == 'running' }}"
   when: lxc_exists

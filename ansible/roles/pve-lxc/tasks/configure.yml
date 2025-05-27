@@ -1,16 +1,58 @@
 ---
 
-- name: Mount volumes to LXC
-  community.general.proxmox:
-    api_host: "{{ proxmox_host }}"
-    api_user: "{{ proxmox_user }}"
-    api_password: "{{ proxmox_password }}" 
-    node: '{{ proxmox_node }}'
-    vmid: '{{ vmid }}'
-    hostname: '{{ hostname }}'
+# - name: Debug hostvars
+#   debug:
+#     var: hostvars
 
-    mount_volumes: "{{ [item] }}"
-    state: present
-    update: true    # update an existing container
-  loop: "{{ mounts }}"
-  delegate_to: localhost
+# - name: Debug {{ proxmox_node }}
+#   debug:
+#     var: hostvars['{{ proxmox_node }}']
+
+- name: Ensure the container is started
+  include_tasks: start.yml
+
+- name: Configure ssh access
+  tags: ssh_config
+  delegate_to: "{{ proxmox_node }}"
+  block:
+  - name: Create .ssh directory in container
+    ansible.builtin.shell: |
+      pct exec {{ vmid }} -- mkdir -p /root/.ssh
+
+  - name: Inject SSH public key into container's authorized_keys
+    ansible.builtin.shell: |
+      pct exec {{ vmid }} -- bash -c 'echo "{{ ssh_pubkey }}" > /root/.ssh/authorized_keys'
+
+  - name: Set correct ownership and permissions
+    ansible.builtin.shell: |
+      pct exec {{ vmid }} -- bash -c 'chown root:root /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys'
+
+  - name: Create a drop-in file to allow root login in container
+    ansible.builtin.shell: |
+      pct exec {{ vmid }} -- bash -c "printf '%s\n' 'PermitRootLogin yes' 'PubkeyAuthentication yes' > /etc/ssh/sshd_config.d/00-defaults.conf"
+
+  - name: Test sshd config inside container
+    ansible.builtin.shell: |
+      pct exec {{ vmid }} -- sshd -t
+    changed_when: false
+
+  - name: Restart sshd
+    ansible.builtin.shell: |
+      pct exec {{ vmid }} -- systemctl restart sshd
+
+
+
+# - name: Mount volumes to LXC
+#   community.general.proxmox:
+#     api_host: "{{ proxmox_host }}"
+#     api_user: "{{ proxmox_user }}"
+#     api_password: "{{ proxmox_password }}" 
+#     node: '{{ proxmox_node }}'
+#     vmid: '{{ vmid }}'
+#     hostname: '{{ hostname }}'
+
+#     mount_volumes: "{{ [item] }}"
+#     state: present
+#     update: true    # update an existing container
+#   loop: "{{ mounts }}"
+#   delegate_to: localhost
