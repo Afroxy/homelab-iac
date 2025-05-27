@@ -1,0 +1,58 @@
+---
+- name: Setup an LXC Container on the Proxmox host
+  tags: install_container
+  hosts: dawarich
+  gather_facts: false
+  roles:
+    - role: pve-lxc
+      vars_files:
+        - pve-lxc_vars.yml
+
+- name: Install Docker
+  tags: install_docker
+  hosts: dawarich
+  gather_facts: true
+  tasks:
+    - name: Create a docker user
+      ansible.builtin.user:
+        name: docker
+        shell: /bin/bash
+        create_home: yes
+  roles:
+    - role: geerlingguy.docker
+      vars:
+        docker_users: docker
+
+
+- name: Install Dawarich
+  tags: install_dawarich
+  hosts: dawarich
+  gather_facts: true
+  tasks:
+
+  - name: Create the program directory
+    ansible.builtin.file:
+      path: "/home/docker/dawarich"
+      state: directory
+      owner: "docker"
+      group: "docker"
+      mode: '0775'
+
+  - name: Upload the docker compose file
+    ansible.builtin.template:
+      src: ../templates/docker-compose_dawarich.yml
+      dest: "/home/docker/dawarich/docker-compose.yml"
+      owner: "docker"
+      group: "docker"
+      mode: '0644'
+
+  - name: Start the container
+    ansible.builtin.shell: |
+      docker compose up -d
+    args:
+      chdir: "/home/docker/dawarich"
+
+
+
+
+
