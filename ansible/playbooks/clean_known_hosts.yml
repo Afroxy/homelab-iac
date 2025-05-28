@@ -5,8 +5,8 @@
   gather_facts: false
   vars:
     known_hosts_targets:
-      - "192.168.1.126"
-      - "dawarich"
+      - "192.168.1.34"
+      #- "dawarich"
   tasks:
     - name: Remove host from known_hosts file in windows
       ansible.builtin.shell: "ssh-keygen -f {{ ssh_known_hosts_file_windows }} -R {{ item }}"
