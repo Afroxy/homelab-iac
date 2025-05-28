@@ -1,0 +1,94 @@
+# Install Mailrise and Apprise in a LXC Container
+# Mailrise: SMTP server that converts the emails it receives into Apprise notifications (https://github.com/YoRyan/mailrise)
+# Apprise:  Send a notification to almost all of the most popular notification services (https://github.com/caronc/apprise?tab=readme-ov-file#email-notifications)
+
+---
+- name: Setup LXC Container
+  tags: install_container
+  hosts: notification
+  gather_facts: false
+  roles:
+    - role: pve-lxc
+      vars_files:
+        - pve-lxc_vars.yml
+
+
+- name: Update apt packages
+  tags: update
+  hosts: notification
+  gather_facts: true
+  tasks:
+    - name: Upgrade packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: yes
+
+
+
+- name: Install Mailrise
+  tags: install_mailrise
+  hosts: notification
+  gather_facts: true
+  tasks:
+
+  - name: Ensure Python pipx is installed
+    ansible.builtin.apt:
+      name: pipx
+      state: present
+
+  - name: Install Mailrise to /usr/local/bin via pipx
+    ansible.builtin.command: pipx install mailrise
+    environment:
+      PIPX_BIN_DIR: /usr/local/bin
+
+
+  - name: Create a systemd configuration file to run mailrise as a service
+    ansible.builtin.copy:
+      dest: /etc/systemd/system/mailrise.service
+      owner: root
+      group: root
+      mode: '0644'
+      content: |
+        [Unit]
+        Description=Mailrise SMTP notification relay
+
+        [Service]
+        ExecStart=/usr/local/bin/mailrise /etc/mailrise.conf
+
+        [Install]
+        WantedBy=multi-user.target
+
+  - name: Upload the mailrise.conf file
+    ansible.builtin.template:
+      src: ../templates/mailrise.conf.j2
+      dest: /etc/mailrise.conf
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Start the mailrise service
+    ansible.builtin.service:
+      name: mailrise.service
+      state: started
+
+
+- name: Install Apprise
+  tags: install_apprise
+  hosts: notification
+  gather_facts: true
+  tasks:
+
+  - name: Install Apprise to /usr/local/bin via pipx
+    ansible.builtin.command: pipx install apprise
+    environment:
+      PIPX_BIN_DIR: /usr/local/bin
+
+  - name: Upload the apprise configuration file
+    ansible.builtin.template:
+      src: ../templates/apprise.yml.j2
+      dest: /etc/apprise.yml
+      owner: root
+      group: root
+      mode: '0644'
+
+
