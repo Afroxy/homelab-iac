@@ -7,6 +7,17 @@
   when: lxc_exists
 
 
+# - name: Set static IP config if gateway is specified
+#   set_fact:
+#     netif_config: "name={{ net.name }},bridge={{ net.bridge }},ip={{ net.ip }},gw={{ net.gw }}"
+#   when: net.gw != ""
+
+# - name: Set DHCP IP config if gateway is not defined
+#   set_fact:
+#     netif_config: "name={{ net.name }},bridge={{ net.bridge }},ip={{ net.ip }}"
+#   when: net.gw == ""
+
+
 - name: Install LXC
   community.general.proxmox:
     api_host: "{{ proxmox_host }}"
@@ -21,8 +32,9 @@
     cores: '{{ cores }}'
     memory: '{{ memory }}'
     swap: '{{ swap }}'
-    netif: '{"net0":"name={{ net.name }},bridge={{ net.bridge }},ip={{ net.ip }},gw={{ net.gw }}"}'
-    nameserver: '{{ dns_server }}'
+    netif:
+      net0: "name={{ net.name }},bridge={{ net.bridge }},ip={{ net.ip }}{{ ',gw=' + net.gw if net.gw else '' }}{{ ',hwaddr='+ net.mac_address if net.mac_address else '' }}"
+    nameserver: '{{ dns_server | default(omit) }}'  # skip parameter if dns_server is not set
     onboot: '{{ start_on_boot }}'
     timezone: '{{ timezone }}'
     unprivileged: '{{ unprivileged }}'
