@@ -1,0 +1,55 @@
+---
+- name: Setup an LXC Container on the Proxmox host
+  tags: install_container
+  hosts: uptime-kuma
+  gather_facts: false
+  roles:
+    - role: pve-lxc
+      vars_files:
+        - pve-lxc_vars.yml
+
+- name: Install Docker
+  tags: install_docker
+  hosts: uptime-kuma
+  gather_facts: true
+  tasks:
+    - name: Create a docker user
+      ansible.builtin.user:
+        name: docker
+        shell: /bin/bash
+        create_home: yes
+  roles:
+    - role: geerlingguy.docker
+      vars:
+        docker_users: docker
+
+
+
+- name: Install Uptime Kuma
+  tags: install_uptime-kuma
+  hosts: uptime-kuma
+  gather_facts: true
+  tasks: 
+
+  - name: Create the program directory
+    ansible.builtin.file:
+      path: "/home/docker/uptime-kuma"
+      state: directory
+      owner: "docker"
+      group: "docker"
+      mode: '0775'
+
+  - name: Upload the docker compose file
+    ansible.builtin.template:
+      src: ../templates/docker-compose_uptime-kuma.yml
+      dest: "/home/docker/uptime-kuma/docker-compose.yml"
+      owner: "docker"
+      group: "docker"
+      mode: '0644'
+
+
+  - name: Start the container
+    ansible.builtin.shell: |
+      docker compose up -d
+    args:
+      chdir: "/home/docker/uptime-kuma"
