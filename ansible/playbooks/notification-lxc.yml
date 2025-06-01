@@ -58,6 +58,11 @@
         [Install]
         WantedBy=multi-user.target
 
+  - name: Enable the service to start on boot
+    ansible.builtin.systemd:
+      name: mailrise
+      enabled: true
+
   - name: Upload the mailrise.conf file
     ansible.builtin.template:
       src: ../templates/mailrise.conf.j2
