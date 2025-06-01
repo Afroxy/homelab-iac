@@ -13,3 +13,4 @@ services:
       HOMEPAGE_ALLOWED_HOSTS: homepage.home.lan:3000
       PUID: $PUID
       PGID: $PGID
+    restart: unless-stopped
