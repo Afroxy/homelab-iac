@@ -1,0 +1,137 @@
+# Setup for Netdisco as an LXC Container 
+# Infos: https://metacpan.org/pod/App::Netdisco
+# Requirements:
+#   pve-lxc (role)
+#   community.postgresql (collection)
+
+---
+- name: Setup an LXC Container on the Proxmox host
+  tags: install_container
+  hosts: netdisco
+  gather_facts: false
+  roles:
+    - role: pve-lxc
+      vars_files:
+        - pve-lxc_vars.yml
+
+
+- name: Install Netdisco
+  tags: install_netdisco
+  hosts: netdisco
+  become: true
+  tasks:
+    - name: Upgrade packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: yes
+
+    - name: Install dependencies
+      ansible.builtin.apt:
+        name: 
+          - libdbd-pg-perl
+          - libsnmp-perl
+          - libssl-dev
+          - libio-socket-ssl-perl
+          - python3 
+          - python3-venv
+          - curl
+          - postgresql
+          - build-essential
+          - sudo
+        
+    - name: Create netdisco user
+      ansible.builtin.user:
+        name: "{{ netdisco_user }}"
+        shell: /bin/bash
+        create_home: yes
+
+    - name: Ensure psycopg2 and dependencies are installed
+      ansible.builtin.apt:
+        name:
+          - python3-psycopg2
+        state: present
+
+    - name: Create PostgreSQL user for Netdisco
+      community.postgresql.postgresql_user:
+        name: "{{ db_user }}"
+        password: "{{ db_password }}"
+        role_attr_flags: NOSUPERUSER,NOCREATEROLE,NOCREATEDB,LOGIN
+        state: present
+      become_user: postgres # postgres standard super-user
+
+    - name: Create PostgreSQL database owned by Netdisco
+      community.postgresql.postgresql_db:
+        name: "{{ db_name }}"
+        owner: "{{ db_user }}"
+        state: present
+      become_user: postgres
+
+    - name: Create bin directory in user's home
+      ansible.builtin.file:
+        path: "/home/{{ netdisco_user }}/bin"
+        state: directory
+        owner: "{{ netdisco_user }}"
+        group: "{{ netdisco_user }}"
+        mode: '0755'
+
+    - name: Download and install Netdisco and its dependencies into the netdisco user's home area (~/perl5)
+      ansible.builtin.shell: |
+        curl -L https://cpanmin.us/ | perl - --notest --local-lib ~/perl5 App::Netdisco
+      args:
+        executable: /bin/bash
+        chdir: "/home/{{ netdisco_user }}"
+      become_user: "{{ netdisco_user }}"
+      environment:  # set environment variables to install Perl modules and binaries in the non-root user's home directory rather than system-wide
+        PERL_LOCAL_LIB_ROOT: ~/perl5
+        PERL_MB_OPT: "--install_base ~/perl5"
+        PERL_MM_OPT: "INSTALL_BASE=~/perl5"
+        PATH: "~/perl5/bin:{{ ansible_env.PATH }}"
+
+    - name: Link Netdisco executables into ~/bin
+      ansible.builtin.shell: |
+        ln -sf ~/perl5/bin/{localenv,netdisco-*} ~/bin/
+      args:
+        executable: /bin/bash
+      become_user: "{{ netdisco_user }}"
+
+    - name: Test Netdisco backend status
+      ansible.builtin.command: /home/{{ netdisco_user }}/bin/netdisco-backend status
+      become_user: "{{ netdisco_user }}"
+      ignore_errors: true
+      register: netdisco_status
+
+    - name: Show netdisco backend status
+      ansible.builtin.debug:
+        var: netdisco_status.stdout
+
+- name: Configure Netdisco environment
+  tags: configure_netdisco
+  hosts: netdisco
+  become: true
+  become_user: netdisco
+  tasks:
+    - name: Ensure environments directory exists
+      ansible.builtin.file:
+        path: ~/environments
+        state: directory
+        mode: '0755'
+
+    - name: Upload deployment.yml file
+      ansible.builtin.template:
+        src: ../templates/netdisco/deployment.yml.j2
+        dest: "/home/{{ netdisco_user }}/environments/deployment.yml"
+        owner: "{{ netdisco_user }}"
+        group: "{{ netdisco_user }}"
+        mode: '0600'
+
+# Manually run deploy script! /home/{{ netdisco_user }}/bin/netdisco-deploy
+
+- name: Start Netdisco
+  tags: start_netdisco
+  hosts: netdisco
+  tasks:
+    - name: Start the web server (Port 5000)
+      ansible.builtin.command: /home/{{ netdisco_user }}/bin/netdisco-web start
+
+    - name: Start the job control daemon
+      ansible.builtin.command: /home/{{ netdisco_user }}/bin/netdisco-backend start
