@@ -1,3 +1,9 @@
 .vault_pass
 archive/
 backup/
+
+# ignore all files beginning with "." except some git-files
+.*
+!.gitignore
+!.gitattributes
+!.gitmodules
