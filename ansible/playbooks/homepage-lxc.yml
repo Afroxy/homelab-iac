@@ -1,0 +1,148 @@
+---
+- name: Setup an LXC Container on the Proxmox host
+  tags: install_container
+  hosts: homepage
+  gather_facts: false
+  roles:
+    - role: pve-lxc
+      vars_files:
+        - pve-lxc_vars.yml
+
+- name: Install Docker
+  tags: install_docker
+  hosts: homepage
+  gather_facts: true
+  tasks:
+    - name: Create a docker user
+      ansible.builtin.user:
+        name: docker
+        shell: /bin/bash
+        create_home: yes
+  roles:
+    - role: geerlingguy.docker
+      vars:
+        docker_users: docker
+
+
+
+- name: Install Homepage
+  tags: install_homepage
+  hosts: homepage
+  gather_facts: true
+  tasks: 
+
+  - name: Create the program directory
+    ansible.builtin.file:
+      path: "/home/docker/homepage"
+      state: directory
+      owner: "docker"
+      group: "docker"
+      mode: '0775'
+
+  - name: Upload the docker compose file
+    ansible.builtin.template:
+      src: ../templates/docker-compose_homepage.yml
+      dest: "/home/docker/homepage/docker-compose.yml"
+      owner: "docker"
+      group: "docker"
+      mode: '0644'
+
+  - name: Create the config directory
+    ansible.builtin.file:
+      path: "/home/docker/homepage/config"
+      state: directory
+      owner: "docker"
+      group: "docker"
+      mode: '0775'
+
+  - name: Get PUID and PGID of the docker user
+    ansible.builtin.getent:
+      database: passwd
+      key: "docker"
+    register: user_info
+
+  - name: debug
+    debug:
+      var: user_info
+
+  - name: Create the .env file with PUID and PGID of the docker user 
+    ansible.builtin.copy:
+      dest: "/home/docker/homepage/.env"
+      content: |
+        PUID={{ user_info.ansible_facts.getent_passwd.docker[1] }}
+        PGID={{ user_info.ansible_facts.getent_passwd.docker[2] }}
+      mode: 0644
+
+  - name: Start the container
+    ansible.builtin.shell: |
+      docker compose up -d
+    args:
+      chdir: "/home/docker/homepage"
+
+
+- name: Download current configuration files
+  tags: get_config
+  hosts: homepage
+  tasks: 
+  - name: Copy the settings.yaml file to the localhost
+    ansible.builtin.fetch:
+      src: /home/docker/homepage/config/settings.yaml
+      dest: ../templates/homepage/settings.yaml.orig
+      flat: true
+
+  - name: Copy the bookmarks.yaml file to the localhost
+    ansible.builtin.fetch:
+      src: /home/docker/homepage/config/bookmarks.yaml
+      dest: ../templates/homepage/bookmarks.yaml.orig
+      flat: true
+
+  - name: Copy the widgets.yaml file to the localhost
+    ansible.builtin.fetch:
+      src: /home/docker/homepage/config/widgets.yaml
+      dest: ../templates/homepage/widgets.yaml.orig
+      flat: true
+
+  - name: Copy the services.yaml file to the localhost
+    ansible.builtin.fetch:
+      src: /home/docker/homepage/config/services.yaml
+      dest: ../templates/homepage/services.yaml.orig
+      flat: true
+
+  - name: Copy the docker.yaml file to the localhost
+    ansible.builtin.fetch:
+      src: /home/docker/homepage/config/docker.yaml
+      dest: ../templates/homepage/docker.yaml.orig
+      flat: true
+
+
+- name: Upload the configuration files and restart the contrainer
+  tags: set_config
+  hosts: homepage
+  tasks: 
+  - name: Upload the settings.yaml file
+    ansible.builtin.copy:
+      src: ../templates/homepage/settings.yaml
+      dest: /home/docker/homepage/config/settings.yaml
+
+  - name: Upload the bookmarks.yaml file
+    ansible.builtin.copy:
+      src: ../templates/homepage/bookmarks.yaml
+      dest: /home/docker/homepage/config/bookmarks.yaml
+
+  - name: Upload the widgets.yaml file
+    ansible.builtin.copy:
+      src: ../templates/homepage/widgets.yaml
+      dest: /home/docker/homepage/config/widgets.yaml
+
+  - name: Upload the services.yaml file
+    ansible.builtin.copy:
+      src: ../templates/homepage/services.yaml
+      dest: /home/docker/homepage/config/services.yaml
+
+  - name: Upload the docker.yaml file
+    ansible.builtin.copy:
+      src: ../templates/homepage/docker.yaml
+      dest: /home/docker/homepage/config/docker.yaml
+
+  - name: Restart the docker container
+    ansible.builtin.command: docker restart homepage
