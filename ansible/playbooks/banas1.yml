@@ -2,9 +2,6 @@
 - name: Configure Backup NAS 1
   hosts: banas1
   gather_facts: true
-  vars_files:
-    - host_vars/banas1/secrets.yml
-    - group_vars/all/secrets.yml
   become: true
 
 
@@ -54,13 +51,13 @@
       - name: Install additional packages
         ansible.builtin.apt:
           name: 
-            - postfix      # Message Transfer Agend (MTA) for logging cronjob output
+            - postfix         # Message Transfer Agend (MTA) for logging cronjob output
             - samba
             - acl
-            - btrbk       # btrfs snapshot utility
-            - util-linux  # for RTC wake
-            - ethtool     # for WOL
+            - btrbk           # btrfs snapshot utility
+            - util-linux      # for RTC wake
             - screen
+            - smartmontools   # SMART test etc.
           state: present
 
 
@@ -177,7 +174,7 @@
       - name: Upload rsync job script
         tags: upload_script_rsync
         ansible.builtin.template:
-          src: templates/rsync_pull_job.sh
+          src: ../templates/banas1/rsync_pull_job.sh
           dest: /usr/local/bin/rsync_pull_job.sh
           owner: "{{ rsync_user }}"
           group: rsync
@@ -218,7 +215,7 @@
 
           - name: Upload the config file
             ansible.builtin.template:
-              src: templates/btrbk_config.j2
+              src: ../templates/banas1/btrbk_config.j2
               dest: "/etc/btrbk/btrbk.conf"
               owner: root
               group: root
@@ -227,7 +224,7 @@
       - name: Upload the rtcwake script
         tags: rtcwake
         ansible.builtin.template:
-          src: templates/good_night.sh
+          src: ../templates/banas1/good_night.sh
           dest: "/usr/local/bin/good_night.sh"
           owner: "{{ rsync_user }}"
           group: rsync
@@ -292,7 +289,7 @@
             path: /usr/local/bin/snap_sync_sleep.sh
             line: 'run_and_log "sudo /usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"'
             insertafter: EOF      
-          loop: "{{ rsync_source_paths | zip(rsync_destination_paths, rsync_hours) | list }}"
+          loop: "{{ rsync_source_paths | zip(rsync_destination_paths) | list }}"
 
         - name: Append RTC timer
           ansible.builtin.lineinfile:
@@ -308,7 +305,7 @@
             hour: "{{ tasks_hour }}"
             minute: "{{ tasks_minute }}"
             user: "{{ rsync_user }}"
-            job: "/usr/local/bin/snap_sync_sleep.sh"    
+            job: "/bin/bash /usr/local/bin/snap_sync_sleep.sh"    
 
 
       - name: Add SSH fingerprint of the rsync source host to known hosts of {{ rsync_user }}
@@ -330,7 +327,7 @@
         block:
           - name:  Upload smb.conf 
             ansible.builtin.template:
-              src: templates/smb.conf.j2
+              src: ../templates/banas1/smb.conf.j2
               dest: /etc/samba/smb.conf
 
           - name: Add SMB user and password

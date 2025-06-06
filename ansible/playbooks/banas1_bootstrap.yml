@@ -2,8 +2,6 @@
 - name: Bootstrap Backup NAS 1 as root
   hosts: banas1
   gather_facts: false
-  vars_files:
-    - host_vars/banas1/secrets.yml
   vars:
     ansible_ssh_common_args: '-o StrictHostKeyChecking=no'  # disable host key checking for inital connection
   become: true
@@ -11,6 +9,10 @@
 
 
   tasks:
+    - name: Set ansible_host for bootstrap
+      ansible.builtin.set_fact:
+        ansible_host: "{{ bs_host }}"
+
     - name: Set username and password for bootstrap
       ansible.builtin.set_fact:
         ansible_user: "{{ bs_user }}" 
