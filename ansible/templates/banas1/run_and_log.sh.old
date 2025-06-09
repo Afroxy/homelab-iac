@@ -1,0 +1,27 @@
+#!/bin/bash
+
+LOG_FILE="/var/log/sss/snap_sync_sleep_$(date +%Y-%m-%d_%H-%M-%S).log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+run_and_log() {
+    CMD="$1"
+    log "Running: $CMD"
+
+    # Run the command, stream output to console and log
+    {
+        eval "$CMD"
+    } 2>&1 | tee -a "$LOG_FILE"
+
+    STATUS=${PIPESTATUS[0]}
+
+    if [ $STATUS -eq 0 ]; then
+        log "Success: '$CMD' exited with code 0"
+    else
+        log "Error: '$CMD' exited with code $STATUS"
+    fi
+
+    echo "" >> "$LOG_FILE"
+}

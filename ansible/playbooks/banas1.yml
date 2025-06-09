@@ -174,35 +174,35 @@
       - name: Upload rsync job script
         tags: upload_script_rsync
         ansible.builtin.template:
-          src: ../templates/banas1/rsync_pull_job.sh
+          src: ../templates/banas1/rsync_pull_job.sh.j2
           dest: /usr/local/bin/rsync_pull_job.sh
           owner: "{{ rsync_user }}"
           group: rsync
           mode: '0770'
 
-      - name: Create a directory for rsync logs in /var/log
+      - name: Create a directory for rsync logs in {{ logpath }}/rsync
         ansible.builtin.file:
-          path: /var/log/rsync
+          path: "{{ logpath }}/rsync"
           state: directory
           owner: root
           group: rsync
-          mode: '0774'
+          mode: '0775'
 
-      - name: Create a directory for cronjob logs in /var/log
+      - name: Create a directory for cronjob logs in {{ logpath }}/cron
         ansible.builtin.file:
-          path: /var/log/cron
+          path: "{{ logpath }}/cron"
           state: directory
           owner: root
           group: rsync
-          mode: '0771'
+          mode: '0775'
 
-      - name: Create a directory for snap-sync-sleep logs in /var/log
+      - name: Create a directory for snap-sync-sleep logs in {{ logpath }}/sss
         ansible.builtin.file:
-          path: /var/log/sss
+          path: "{{ logpath }}/sss"
           state: directory
           owner: root
           group: rsync
-          mode: '0771'
+          mode: '0775'
 
       - name: Set up btrfs snapshots with btrbk
         tags: btrbk
@@ -230,72 +230,72 @@
           group: rsync
           mode: '0770'
 
+      - name: Upload the run_and_log script
+        tags: run_and_log
+        ansible.builtin.template:
+          src: ../templates/banas1/run_and_log.sh
+          dest: "/usr/local/bin/run_and_log.sh"
+          owner: "{{ rsync_user }}"
+          group: rsync
+          mode: '0770'      
+
       - name: Create a bash script containing all tasks
         tags: tasks
         block:
 
-        - name: Remove existing script
-          ansible.builtin.file:
-            path: /usr/local/bin/snap_sync_sleep.sh
-            state: absent
-
-        - name: Setup logging
-          ansible.builtin.blockinfile:
-            path: /usr/local/bin/snap_sync_sleep.sh
-            block: |
+        - name: Create sss script - Head
+          ansible.builtin.copy:
+            dest: /usr/local/bin/snap_sync_sleep.sh
+            content: |
               #!/bin/bash
 
-              LOG_FILE="/var/log/sss/snap_sync_sleep_$(date +%Y-%m-%d_%H-%M-%S).log"
+              export PATH=/usr/local/bin:$PATH
 
-              log() {
-                  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
-              }
+              SECONDS=0          # reset counter at the start
+              TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+              LOG_FILE="{{ logpath }}/sss/snap_sync_sleep_${TIMESTAMP}.log"
 
-              run_and_log() {
-                  CMD="$1"
-                  log "Running: $CMD"
-
-                  # Run the command, stream output to console and log
-                  {
-                      eval "$CMD"
-                  } 2>&1 | tee -a "$LOG_FILE"
-
-                  STATUS=${PIPESTATUS[0]}
-
-                  if [ $STATUS -eq 0 ]; then
-                      log "Success: '$CMD' exited with code 0"
-                  else
-                      log "Error: '$CMD' exited with code $STATUS"
-                  fi
-
-                  echo "" >> "$LOG_FILE"
-              }
-            append_newline: true
-            prepend_newline: true
-            create: true
             owner: "{{ rsync_user }}"
             group: rsync
             mode: '0770'
-            insertbefore: BOF
           
-        - name: Append snapshot task
+        - name: Create sss script - Append snapshot task
           ansible.builtin.lineinfile:
             path: /usr/local/bin/snap_sync_sleep.sh
-            line: 'run_and_log "sudo /usr/bin/btrbk -c /etc/btrbk/btrbk.conf run"'
+            line: 'run_and_log.sh "/usr/bin/btrbk -c /etc/btrbk/btrbk.conf run" "$LOG_FILE"'
             insertafter: EOF
 
-        - name: Append rsync tasks
+        - name: Create sss script - Append rsync tasks
           ansible.builtin.lineinfile:
             path: /usr/local/bin/snap_sync_sleep.sh
-            line: 'run_and_log "sudo /usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}"'
+            line: 'run_and_log.sh "/usr/local/bin/rsync_pull_job.sh {{ rsync_user }} {{ rsync_host }} {{ item.0 }} {{ item.1 }}" "$LOG_FILE"'
             insertafter: EOF      
           loop: "{{ rsync_source_paths | zip(rsync_destination_paths) | list }}"
 
-        - name: Append RTC timer
+        - name: Create sss script - Append RTC timer
           ansible.builtin.lineinfile:
             path: /usr/local/bin/snap_sync_sleep.sh
-            line: 'run_and_log "sudo /usr/local/bin/good_night.sh {{wake_hour}} {{wake_minute}} 2>&1 | tee -a \"$LOG_FILE\""'
+            line: 'run_and_log.sh "/usr/local/bin/good_night.sh {{wake_hour}} {{wake_minute}} >> $LOG_FILE 2>&1" "$LOG_FILE"'
             insertafter: EOF 
+
+        - name: Create sss script - Tail
+          ansible.builtin.blockinfile:
+            path: /usr/local/bin/snap_sync_sleep.sh
+            block: |
+              # Calculate the runtime
+              START=${TIMESTAMP}
+              END=$(date +%Y-%m-%d_%H-%M-%S)
+
+              duration=$SECONDS
+
+              hours=$((duration / 3600))
+              minutes=$(((duration % 3600) / 60))
+              seconds=$((duration % 60))
+
+              echo "Start: $START" | tee -a "$LOG_FILE"
+              echo "End: $END" | tee -a "$LOG_FILE"
+              echo "Total runtime: ${hours}h ${minutes}m ${seconds}s" | tee -a "$LOG_FILE"
+            insertafter: EOF
 
         - name: Create a cron job for the tasks to run (sequentially)
           ansible.builtin.cron:
@@ -305,7 +305,7 @@
             hour: "{{ tasks_hour }}"
             minute: "{{ tasks_minute }}"
             user: "{{ rsync_user }}"
-            job: "/bin/bash /usr/local/bin/snap_sync_sleep.sh"    
+            job: "sudo /usr/local/bin/snap_sync_sleep.sh"    
 
 
       - name: Add SSH fingerprint of the rsync source host to known hosts of {{ rsync_user }}
@@ -361,7 +361,7 @@
 
 
 ## TODO:
-# - email results of snapshots and rsync
+# - Set notifications 
 
 
 

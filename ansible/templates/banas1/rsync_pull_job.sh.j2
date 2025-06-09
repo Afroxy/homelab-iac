@@ -13,9 +13,9 @@ RSYNC_HOST=$2
 SOURCE_PATH=$3
 DESTINATION_PATH=$4
 
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 
-LOG_PATH="/var/log/rsync"
+LOG_PATH="{{ logpath }}/rsync"
 mkdir -p "$LOG_PATH"
 LOG_OUT="rsync_pull_job_stdout_$TIMESTAMP.log"
 LOG_ERR="rsync_pull_job_stderr_$TIMESTAMP.log"

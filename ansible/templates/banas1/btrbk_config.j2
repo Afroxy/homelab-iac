@@ -13,7 +13,7 @@ snapshot_preserve       24h 14d 12m     # 24 hourly, 14 daily, 12 monthly
 
 volume /mnt/data
   snapshot_dir truenas/snapshots
-  subvolume {{ btrfs_subvolumes[0] }}
-  subvolume {{ btrfs_subvolumes[1] }}
-  subvolume {{ btrfs_subvolumes[2] }}
-  subvolume {{ btrfs_subvolumes[3] }}
+  {% for subvol in btrfs_subvolumes %}
+  subvolume {{ subvol }}
+  {% endfor %}
+
