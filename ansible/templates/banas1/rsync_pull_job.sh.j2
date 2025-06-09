@@ -27,7 +27,7 @@ RSYNC_PULL_COMMAND=(
   rsync
   -e "ssh -i /home/banas1/.ssh/id_rsa"
   -av 
-  -A -X
+  -A
   --inplace
   --delete 
   "$RSYNC_USER@$RSYNC_HOST:$SOURCE_PATH" 
