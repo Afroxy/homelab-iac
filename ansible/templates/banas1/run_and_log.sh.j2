@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# Validate input
+if [ $# -lt 2 ]; then
+    echo "Usage: $0 <command> <log_file>"
+    exit 1
+fi
+
+CMD="$1"            # First argument: command string
+LOG_FILE="$2"       # Second argument: log file path
+STATUS_FILE="{{ logpath }}/run_and_log_status.json"
+
+
+log() {
+    echo "[$1] $2" | tee -a "$LOG_FILE"
+}
+
+TIMESTAMP_BEGIN=$(date '+%Y-%m-%d %H:%M:%S')
+log "$TIMESTAMP_BEGIN" "Running: $CMD"
+bash -c "$CMD" 
+STATUS=$?
+
+TIMESTAMP_END=$(date '+%Y-%m-%d %H:%M:%S')
+
+if [ $STATUS -eq 0 ]; then
+    SUCCESS=1
+    log "$TIMESTAMP_END" "Success: '$CMD' exited with code 0"
+else
+    log "$TIMESTAMP_END" "Error: '$CMD' exited with code $STATUS"
+    SUCCESS=0
+fi
+
+# Blank line for spacing
+echo "" >> "$LOG_FILE"
+
+# Write runtime information to json file
+cat > "$STATUS_FILE" <<EOF
+{
+    "command": "$(echo "$CMD" | sed 's/"/\\"/g')",
+    "status": $STATUS,
+    "success": $SUCCESS,
+    "start_time": "$TIMESTAMP_BEGIN",
+    "end_time": "$TIMESTAMP_END"
+}
+EOF

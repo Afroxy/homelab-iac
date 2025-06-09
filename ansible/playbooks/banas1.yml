@@ -233,7 +233,7 @@
       - name: Upload the run_and_log script
         tags: run_and_log
         ansible.builtin.template:
-          src: ../templates/banas1/run_and_log.sh
+          src: ../templates/banas1/run_and_log.sh.j2
           dest: "/usr/local/bin/run_and_log.sh"
           owner: "{{ rsync_user }}"
           group: rsync
