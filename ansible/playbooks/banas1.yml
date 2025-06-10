@@ -141,6 +141,7 @@
         loop: "{{ btrfs_subvolumes }}"
 
       - name: Ensure remounting of btrfs volume after suspend
+        tags: remount-service
         block:
           - name: Create systemd service to remount after suspend
             copy:
@@ -156,7 +157,7 @@
 
                 [Service]
                 Type=oneshot
-                ExecStart=/bin/bash -c 'sleep 20 && mount --uuid {{ ansible_local['disk']['uuid'] }} {{ mount_point }}'
+                ExecStart=/bin/bash -c 'sleep 40 && mount --uuid {{ ansible_local['disk']['uuid'] }} {{ mount_point }}'
                 ExecStartPost=/bin/sleep 2
 
                 [Install]
